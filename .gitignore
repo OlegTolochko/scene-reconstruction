@@ -203,6 +203,8 @@ cython_debug/
 
 # Datasets, experiment outputs and large ML artifacts
 data/
+# VGGT-Omega keeps its dataloader source code in training/data/.
+!papers/VGGT-Omega/training/data/
 **/checkpoints/
 # Marimo
 marimo/_static/
