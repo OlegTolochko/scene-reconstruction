@@ -20,3 +20,6 @@ uv sync
 | Name     | Folder          | Upstream |
 | -------- | --------------- | -------- |
 | GenRecon | papers/GenRecon | https://github.com/kasothaphie/GenRecon |
+| VGGT-Omega | papers/VGGT-Omega | https://github.com/facebookresearch/vggt-omega |
+
+See `papers/README.md` for imported commits and licenses.
