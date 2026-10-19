@@ -1,0 +1,108 @@
+{
+    "models": {
+        "denoiser": {
+            "name": "SparseStructureFlowModel",
+            "args": {
+                "resolution": 16,
+                "in_channels": 8,
+                "out_channels": 8,
+                "model_channels": 1536,
+                "cond_channels": 1024,
+                "num_blocks": 30,
+                "num_heads": 12,
+                "mlp_ratio": 5.3334,
+                "pe_mode": "rope",
+                "share_mod": true,
+                "initialization": "scaled",
+                "qk_rms_norm": true,
+                "qk_rms_norm_cross": true,
+                "dtype": "bfloat16"
+            },
+            "lora": {
+                "r": 8,
+                "alpha": 16
+            },
+            "projection": {
+                "image_size": 512,
+                "use_camera": false,
+                "refinement_factor": 1,
+                "conv_net": false,
+                "self_attention": false
+            }
+        }
+    },
+    "dataset": {
+        "name": "RoomCameraConditionedSparseStructureLatent",
+        "args": {
+           "min_aesthetic_score": 4.5,
+            "image_size": 512,
+            "max_num_cond_views": 16,
+            "pretrained_ss_dec": "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16"
+        }
+    },
+    "trainer": {
+        "name": "CameraConditionedFlowMatchingCFGTrainer",
+        "args": {
+            "max_steps": 100000,
+            "batch_size_per_gpu": 8,
+            "batch_split": 4,
+            "num_workers_per_gpu": 8,
+            "optimizer": {
+                "name": "AdamW",
+                "args": {
+                    "lr": {
+                        "lora": 3e-5,
+                        "new": 1e-4
+                    },
+                    "weight_decay": {
+                        "lora": 0.0,
+                        "new_weights": 0.01
+                    },
+                    "betas": [0.9, 0.95],
+                    "eps": 1e-8
+                }
+            },
+            "lr_scheduler": {
+                "name": "LinearWarmupLRScheduler",
+                "args": {
+                    "warmup_steps": 2000
+                    }
+                },
+            "ema_rate": [
+                0.9995
+            ],
+            "mix_precision_mode": "amp",
+            "mix_precision_dtype": "bfloat16",
+            "grad_clip": {
+                "name": "AdaptiveGradClipper",
+                "args": {
+                    "max_norm": 1.0,
+                    "clip_percentile": 95
+                }
+            },
+            "finetune_ckpt": {
+                "denoiser": "microsoft/TRELLIS.2-4B/ckpts/ss_flow_img_dit_1_3B_64_bf16"
+            },
+            "i_val": 1000,
+            "i_log": 200,
+            "i_sample": 6000,
+            "i_save": 6000,
+            "p_uncond": 0.1,
+            "t_schedule": {
+                "name": "logitNormal",
+                "args": {
+                    "mean": 1.0,
+                    "std": 1.0
+                }
+            },
+            "sigma_min": 1e-5,
+            "image_cond_model": {
+                "name": "DinoV3FeatureExtractor",
+                "args": {
+                    "model_name": "facebook/dinov3-vitl16-pretrain-lvd1689m",
+                    "image_size": 512
+                }
+            }
+        }
+    }
+}

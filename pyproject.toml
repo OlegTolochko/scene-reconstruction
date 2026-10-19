@@ -1,7 +1,7 @@
 [project]
 name = "scene-reconstruction"
 version = "0.1.0"
-description = "Add your description here"
+description = "Research project on scene reconstruction"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
