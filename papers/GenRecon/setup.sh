@@ -79,14 +79,14 @@ fi
 if [ "$BASIC" = true ] ; then
     pip install imageio imageio-ffmpeg tqdm easydict opencv-python-headless ninja trimesh transformers==4.57.3 gradio==6.0.1 tensorboard pandas lpips zstandard
     pip install git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
-    sudo apt install -y libjpeg-dev
+    conda install -y -c conda-forge libjpeg-turbo
     pip install pillow-simd
     pip install kornia timm
 fi
 
 if [ "$FLASHATTN" = true ] ; then
     if [ "$PLATFORM" = "cuda" ] ; then
-        pip install flash-attn==2.7.3
+        pip install flash-attn==2.7.3 --no-build-isolation
     elif [ "$PLATFORM" = "hip" ] ; then
         echo "[FLASHATTN] Prebuilt binaries not found. Building from source..."
         mkdir -p /tmp/extensions
