@@ -1,1 +1,0 @@
-# future scannet++ download script
