@@ -1,0 +1,114 @@
+"""Run VGGT-Omega on a folder of images or a video and save the predictions.
+
+Usage (from the repo root, in the vggt-omega conda env):
+    python experiments/vggt_omega_inference/infer.py papers/VGGT-Omega/examples/forest_road.mp4
+    python experiments/vggt_omega_inference/infer.py path/to/image_folder
+"""
+
+import argparse
+import glob
+import os
+import tempfile
+from pathlib import Path
+
+import cv2
+import numpy as np
+import torch
+
+from vggt_omega.models import VGGTOmega
+from vggt_omega.utils.load_fn import load_and_preprocess_images
+from vggt_omega.utils.pose_enc import encoding_to_camera
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CHECKPOINT = REPO_ROOT / "papers/VGGT-Omega/checkpoints/VGGT-Omega-1B-512/model.pt"
+IMAGE_EXTS = (".png", ".jpg", ".jpeg")
+
+
+def get_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def extract_frames(video_path: str, num_frames: int, out_dir: str) -> list[str]:
+    """Save num_frames evenly spaced frames from the video and return their paths."""
+    cap = cv2.VideoCapture(video_path)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    paths = []
+    for i, index in enumerate(np.linspace(0, total - 1, num_frames).astype(int)):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, index)
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        path = os.path.join(out_dir, f"{i:04d}.png")
+        cv2.imwrite(path, frame)
+        paths.append(path)
+    cap.release()
+    return paths
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", help="Image folder or video file.")
+    parser.add_argument("--checkpoint", default=str(DEFAULT_CHECKPOINT))
+    parser.add_argument("--num-frames", type=int, default=16, help="Frames to sample from a video.")
+    parser.add_argument("--image-resolution", type=int, default=512)
+    parser.add_argument("--output", default=None, help="Output .npz path. Default: outputs/<input name>.npz")
+    args = parser.parse_args()
+
+    device = get_device()
+    print(f"Device: {device}")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        if os.path.isdir(args.input):
+            image_names = sorted(p for p in glob.glob(os.path.join(args.input, "*")) if p.lower().endswith(IMAGE_EXTS))
+        else:
+            image_names = extract_frames(args.input, args.num_frames, tmp_dir)
+        if not image_names:
+            raise SystemExit(f"No images found in {args.input}")
+        print(f"Images: {len(image_names)}")
+
+        model = VGGTOmega().eval()
+        model.load_state_dict(torch.load(args.checkpoint, map_location="cpu"))
+        model = model.to(device)
+
+        images = load_and_preprocess_images(image_names, image_resolution=args.image_resolution).to(device)
+
+        with torch.inference_mode():
+            predictions = model(images)
+
+    extrinsics, intrinsics = encoding_to_camera(
+        predictions["pose_enc"],
+        predictions["images"].shape[-2:],
+    )
+
+    depth = predictions["depth"]
+    depth_conf = predictions["depth_conf"]
+    camera_and_register_tokens = predictions["camera_and_register_tokens"]
+    camera_tokens = camera_and_register_tokens[:, :, :1]
+    registers = camera_and_register_tokens[:, :, 1:]
+
+    print(f"depth {tuple(depth.shape)}, extrinsics {tuple(extrinsics.shape)}, intrinsics {tuple(intrinsics.shape)}")
+
+    def to_np(t: torch.Tensor) -> np.ndarray:
+        return t[0].detach().float().cpu().numpy()  # drop the batch dimension
+
+    output = Path(args.output) if args.output else REPO_ROOT / "outputs" / f"{Path(args.input).stem}.npz"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        output,
+        images=to_np(predictions["images"]),
+        depth=to_np(depth),
+        depth_conf=to_np(depth_conf),
+        extrinsics=to_np(extrinsics),
+        intrinsics=to_np(intrinsics),
+        camera_tokens=to_np(camera_tokens),
+        registers=to_np(registers),
+    )
+    print(f"Saved {output}")
+
+
+if __name__ == "__main__":
+    main()
