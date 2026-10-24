@@ -40,9 +40,16 @@ class VGGTOmega(nn.Module):
         if len(images.shape) == 4:
             images = images.unsqueeze(0)
 
+        # Autocast on the device the images are on (CUDA, MPS or CPU).
+        device_type = images.device.type
         if self.autocast:
-            amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            aggregator_context = torch.autocast(device_type="cuda", dtype=amp_dtype)
+            if device_type == "cuda":
+                amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            elif device_type == "mps":
+                amp_dtype = torch.float16
+            else:
+                amp_dtype = torch.bfloat16
+            aggregator_context = torch.autocast(device_type=device_type, dtype=amp_dtype)
         else:
             aggregator_context = contextlib.nullcontext()
         with aggregator_context:
@@ -55,7 +62,7 @@ class VGGTOmega(nn.Module):
         predictions = {
             "camera_and_register_tokens": final_tokens[:, :, :patch_token_start].contiguous(),
         }
-        with torch.autocast(device_type="cuda", enabled=False):
+        with torch.autocast(device_type=device_type, enabled=False):
             if self.camera_head is not None:
                 predictions["pose_enc"] = self.camera_head(
                     aggregated_tokens_list,
