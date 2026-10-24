@@ -278,11 +278,32 @@ def check_download_file(cfg, url_template, remote_path, local_path, dry_run):
         return download_file(url, local_path, verbose=cfg.verbose, make_parent=True)
 
 
+def read_env_token():
+    """Return SCANNETPP_TOKEN from the environment, or from a .env file in
+    the current folder, this script's folder, or the repo root."""
+    if os.environ.get("SCANNETPP_TOKEN"):
+        return os.environ["SCANNETPP_TOKEN"].strip()
+    script_dir = Path(__file__).resolve().parent
+    for env_file in [Path.cwd() / ".env", script_dir / ".env", script_dir.parent / ".env"]:
+        if not env_file.is_file():
+            continue
+        for line in env_file.read_text().splitlines():
+            key, sep, value = line.strip().partition("=")
+            if sep and key.strip() == "SCANNETPP_TOKEN":
+                return value.strip().strip("\"'")
+    return None
+
+
 def main(args):
     print_banner(args.config_file)
     cfg = load_yaml_munch(args.config_file)
+    # Token from the SCANNETPP_TOKEN env var or the repo's .env takes priority over the yml
+    env_token = read_env_token()
+    if env_token:
+        cfg.token = env_token
+        print("Using token from SCANNETPP_TOKEN (.env or environment)")
     # Ask the user to provide the token if not provided
-    if cfg.get("token", "<YOUR_TOKEN_HERE>") == "<YOUR_TOKEN_HERE>":
+    elif cfg.get("token", "<YOUR_TOKEN_HERE>") == "<YOUR_TOKEN_HERE>":
         cfg.token = input("Please enter your download token: ").strip()
         if cfg.token == "":
             print("No token provided, exiting. Please apply for a token from ScanNet++ official website.")
