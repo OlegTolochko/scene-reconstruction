@@ -33,16 +33,17 @@ uv run python data_download/download_scannetpp.py data_download/download_scannet
 
 ```bash
 conda activate genrecon
-export ATTN_BACKEND=xformers
+export ATTN_BACKEND=flash_attn
+export SPARSE_ATTN_BACKEND=flash_attn
 cd ~/scene-reconstruction/papers/GenRecon
 
 python reconstruct_scene.py \
     --mode Scannet_colmap \
     --path ~/scene-reconstruction/data/scannetpp/data/56a0ec536c \
     --output_path ~/scene-reconstruction/outputs/genrecon/56a0ec536c \
-    --ss_ckpt checkpoints/sparse_structure.pt \
-    --shape_ckpt checkpoints/shape_slat.pt \
-    --tex_ckpt checkpoints/texture_slat.pt \
+    --ss_ckpt checkpoints/ss/ckpts/sparse_structure.pt \
+    --shape_ckpt checkpoints/shape/ckpts/shape_slat.pt \
+    --tex_ckpt checkpoints/tex/ckpts/texture_slat.pt \
     --num_imgs_per_scene 32
 ```
 
