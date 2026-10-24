@@ -26,7 +26,7 @@ echo 'SCANNETPP_TOKEN=<your token>' > .env
 Then download the data:
 
 ```bash
-python data_download/download_scannetpp.py data_download/download_scannetpp.yml
+uv run python data_download/download_scannetpp.py data_download/download_scannetpp.yml
 ```
 
 ## Papers
