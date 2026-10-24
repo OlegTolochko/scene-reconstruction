@@ -1,7 +1,7 @@
 """Images or video -> VGGT-Omega -> GenRecon -> scene.glb
 
 Usage (from the repo root, in the genrecon env with VGGT-Omega installed):
-    python pipeline/run.py path/to/images_or_video --out outputs/my_room
+    python scripts/run.py path/to/images_or_video --out outputs/my_room
 
 Each step runs as its own process (frees GPU memory in between) and is skipped
 if its output already exists, so a failed step can be rerun on its own.
@@ -42,7 +42,7 @@ def main():
              "--num-frames", args.num_frames, "--output", npz])
 
     if not (scene / "colmap/points3D.txt").exists():
-        run([py, ROOT / "pipeline/convert.py", npz, scene, "--room-height", args.room_height])
+        run([py, Path(__file__).resolve().parent / "convert.py", npz, scene, "--room-height", args.room_height])
 
     if not (recon / "to_glb_inputs.pt").exists():
         run([py, "reconstruct_scene.py", "--mode", "Iphone", "--path", scene, "--colmap_subdir", "colmap",
