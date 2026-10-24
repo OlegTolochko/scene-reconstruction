@@ -315,6 +315,7 @@ def main(args):
         cfg.data_root = input("Please enter your download location: (default: ./scannetpp_data)").strip()
         if cfg.data_root == "":
             cfg.data_root = "./scannetpp_data"
+    cfg.data_root = str(Path(cfg.data_root).expanduser())  # allow ~ in the yml
     print(f"Downloading to: {cfg.data_root}")
 
     # Notify user the size of the whole dataset

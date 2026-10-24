@@ -32,7 +32,7 @@
 token: <YOUR_TOKEN_HERE>
 ###### download the data here ######
 # specify an absolute path
-data_root: ~/scene-reconstruction/data/
+data_root: ~/scene-reconstruction/data/scannetpp
 
 # root url of the data
 root_url: https://scannetpp.mlsg.cit.tum.de/scannetpp/download/v2?version=v1&token=TOKEN&file=FILEPATH
@@ -54,7 +54,8 @@ download_splits: [nvs_sem_train, nvs_sem_val, nvs_test, sem_test, nvs_test_iphon
 # enter the scene IDs separated by comma
 # scene lists can be downloaded by setting metadata_only to true
 # an example scene ID is provided below
-# download_scenes: [56a0ec536c]
+# (download_scenes takes priority over download_splits)
+download_scenes: [56a0ec536c]
 
 ###### specify the assets to download ######
 # by default, these assets are downloaded for each scene:
@@ -82,7 +83,11 @@ default_assets: [
 
 # uncomment this and comment the other asset options to specify individual assets
 # the full list of assets is under `scene_assets`
-# download_assets: []
+# (download_assets takes priority over default_assets)
+# Only what GenRecon's --mode Scannet_colmap reads:
+#   dslr/resized_undistorted_images(+masks), dslr/nerfstudio/transforms_undistorted.json, dslr/colmap/points3D.txt
+download_assets: [dslr_resized_undistorted_dir, dslr_resized_undistorted_mask_dir,
+                  dslr_nerfstudio_transform_undistorted_path, dslr_colmap_dir]
 
 # uncomment this and comment the other asset options to specify options based on device or task
 # see below for possible options
