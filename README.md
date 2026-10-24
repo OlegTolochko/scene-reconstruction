@@ -15,6 +15,20 @@ data/         datasets (not tracked)
 uv sync
 ```
 
+### ScanNet++ data
+
+Create a `.env` file in the repo root with your ScanNet++ token:
+
+```bash
+echo 'SCANNETPP_TOKEN=<your token>' > .env
+```
+
+Then download the data:
+
+```bash
+uv run python data_download/download_scannetpp.py data_download/download_scannetpp.yml
+```
+
 ## Papers
 
 | Name     | Folder          | Upstream |
