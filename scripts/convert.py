@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 from PIL import Image
+from scipy.spatial.transform import Rotation
 
 
 def unproject(depth, extrinsics, intrinsics):
@@ -25,17 +26,6 @@ def unproject(depth, extrinsics, intrinsics):
     cam = np.stack([(x - cx) / fx * depth, (y - cy) / fy * depth, depth], axis=-1)
     R, t = extrinsics[:, :3, :3], extrinsics[:, :3, 3]
     return np.einsum("sji,shwj->shwi", R, cam - t[:, None, None, :])
-
-
-def rotation_to_z(up):
-    """Rotation matrix that maps the unit vector `up` onto +z."""
-    up = up / np.linalg.norm(up)
-    z = np.array([0.0, 0.0, 1.0])
-    v, c = np.cross(up, z), float(up @ z)
-    if np.linalg.norm(v) < 1e-8:
-        return np.eye(3) if c > 0 else np.diag([1.0, -1.0, -1.0])
-    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + vx + vx @ vx / (1 + c)
 
 
 def estimate_up(points, extrinsics):
@@ -53,15 +43,6 @@ def estimate_up(points, extrinsics):
         return normal
     print("[convert] no clear floor found, using camera up direction")
     return up
-
-
-def rotmat_to_quat(R):
-    """3x3 rotation -> COLMAP quaternion (qw, qx, qy, qz)."""
-    w = np.sqrt(max(0.0, 1 + R[0, 0] + R[1, 1] + R[2, 2])) / 2
-    x = np.copysign(np.sqrt(max(0.0, 1 + R[0, 0] - R[1, 1] - R[2, 2])) / 2, R[2, 1] - R[1, 2])
-    y = np.copysign(np.sqrt(max(0.0, 1 - R[0, 0] + R[1, 1] - R[2, 2])) / 2, R[0, 2] - R[2, 0])
-    z = np.copysign(np.sqrt(max(0.0, 1 - R[0, 0] - R[1, 1] + R[2, 2])) / 2, R[1, 0] - R[0, 1])
-    return w, x, y, z
 
 
 def main():
@@ -91,7 +72,7 @@ def main():
         pts, cols = pts[idx], cols[idx]
 
     # Align: up -> +z, floor at z=0, room height -> metres (same percentiles as GenRecon)
-    R_align = rotation_to_z(estimate_up(pts, extr))
+    R_align = Rotation.align_vectors([[0, 0, 1]], [estimate_up(pts, extr)])[0].as_matrix()
     pts = pts @ R_align.T
     z_floor, z_ceil = np.percentile(pts[:, 2], 0.2), np.percentile(pts[:, 2], 99.97)
     scale = args.room_height / (z_ceil - z_floor)
@@ -111,7 +92,7 @@ def main():
             fc.write(f"{i + 1} PINHOLE {W} {H} {K[0, 0]} {K[1, 1]} {K[0, 2]} {K[1, 2]}\n")
             R = extr[i, :, :3] @ R_align.T
             t = scale * (extr[i, :, 3] + R @ offset)
-            qw, qx, qy, qz = rotmat_to_quat(R)
+            qw, qx, qy, qz = Rotation.from_matrix(R).as_quat()[[3, 0, 1, 2]]  # COLMAP wants w first
             fi.write(f"{i + 1} {qw} {qx} {qy} {qz} {t[0]} {t[1]} {t[2]} {i + 1} {name}\n\n")
     with open(out / "colmap/points3D.txt", "w") as f:
         for j, ((x, y, z), (r, g, b)) in enumerate(zip(pts, cols)):
