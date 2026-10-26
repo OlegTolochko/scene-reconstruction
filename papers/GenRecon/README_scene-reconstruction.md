@@ -40,7 +40,8 @@ Requirements:
 - An NVIDIA driver that supports CUDA 13 (version 580 or newer).
 - A CUDA 13.x toolkit with `nvcc`, and a host compiler that toolkit supports.
   PyTorch only builds extensions with a toolkit whose major version matches
-  its own CUDA version, which is 13 here.
+  its own CUDA version, which is 13 here. Without one, see
+  [CUDA 13 Toolkit Without Root](#cuda-13-toolkit-without-root). 
 - `uv`, `curl`, and ffmpeg 5.1 or newer (ffmpeg only for iPhone data).
 - Access to the gated Hugging Face repo
   `facebook/dinov3-vitl16-pretrain-lvd1689m`, the image encoder that the
@@ -51,6 +52,26 @@ Requirements:
 - A GPU with 24 GB or more for typical rooms. A 7 × 7 m room peaked at about
   21 GB.
 
+### CUDA 13 Toolkit Without Root
+
+If `nvcc --version` reports anything other than 13.x and you cannot install
+system packages, first install the toolkit into a directory you own:
+
+```bash
+CUDA_RUN=/var/tmp/$USER/cuda_13.0.2_580.95.05_linux.run
+mkdir -p /var/tmp/$USER
+curl -fL -o $CUDA_RUN https://developer.download.nvidia.com/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run
+sh $CUDA_RUN --silent --toolkit --toolkitpath=/var/tmp/$USER/cuda-13.0 --no-man-page --tmpdir=/var/tmp/$USER
+rm $CUDA_RUN
+/var/tmp/$USER/cuda-13.0/bin/nvcc --version    # should report release 13.0
+```
+
+Then set `CUDA_HOME=/var/tmp/$USER/cuda-13.0` in the extension step below. The
+toolkit is only used to compile the extensions. Nothing compiles CUDA code at
+run time, so you can delete the toolkit once the import check prints `ok`.
+
+### Environment
+
 Upstream pins torch 2.6 with CUDA 12.x, which has no kernels for Blackwell GPUs
 (sm_120). This setup uses torch 2.9.1 with CUDA 13.0 instead, together with the
 flash-attn 2.8.3 release wheel built for that pair. That wheel has kernels for
@@ -58,8 +79,8 @@ sm_80, sm_90, sm_100 and sm_120.
 
 ```bash
 cd papers/GenRecon
-uv venv --python 3.12 .venv
-export VIRTUAL_ENV=$PWD/.venv
+uv venv --python 3.12 --prompt genrecon .venv
+source .venv/bin/activate
 uv pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cu130
 uv pip install imageio imageio-ffmpeg tqdm easydict opencv-python-headless ninja trimesh \
     transformers==4.57.3 tensorboard pandas lpips zstandard kornia timm pillow open3d==0.19.0 \
@@ -69,7 +90,8 @@ uv pip install "https://github.com/Dao-AILab/flash-attention/releases/download/v
 
 # CUDA extensions, compiled for the GPU in this machine.
 export CUDA_HOME=/usr/local/cuda    # path to your CUDA 13.x toolkit
-export TORCH_CUDA_ARCH_LIST=$(.venv/bin/python -c "import torch; print('%d.%d' % torch.cuda.get_device_capability())")
+export PATH=$CUDA_HOME/bin:$PATH
+export TORCH_CUDA_ARCH_LIST=$(python -c "import torch; print('%d.%d' % torch.cuda.get_device_capability())")
 # Build o-voxel from a copy so build files stay out of the source tree, as setup.sh does.
 OVOXEL_BUILD=$(mktemp -d)
 cp -r o-voxel $OVOXEL_BUILD/
@@ -79,7 +101,11 @@ uv pip install --no-build-isolation \
     "cumesh @ git+https://github.com/JeffreyXiang/CuMesh.git@12289e1062f0603f2f0d0771b02e1395d247f26f" \
     "flex_gemm @ git+https://github.com/JeffreyXiang/FlexGEMM.git@6dd94a859c26ee8246888502eada3dd8ad85532e" \
     $OVOXEL_BUILD/o-voxel
+rm -rf $OVOXEL_BUILD
+python -c "import o_voxel, cumesh, flex_gemm, nvdiffrast.torch, nvdiffrec_render; print('ok')"
 ```
+
+### Checkpoints
 
 The released checkpoints ship without the training `config.json` that
 `load_train_config` expects at `<run>/config.json` for a checkpoint at
