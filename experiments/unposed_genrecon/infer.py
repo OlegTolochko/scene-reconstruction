@@ -22,6 +22,7 @@ from vggt_omega.utils.pose_enc import encoding_to_camera
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT = REPO_ROOT / "papers/VGGT-Omega/checkpoints/VGGT-Omega-1B-512/model.pt"
+OUTPUT_DIR = REPO_ROOT / "outputs/unposed_genrecon"  # predictions saved as <input name>.npz
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")
 
 
@@ -55,7 +56,6 @@ def main() -> None:
     parser.add_argument("input", help="Image folder or video file.")
     parser.add_argument("--num-frames", type=int, default=16, help="Frames to sample from a video.")
     parser.add_argument("--image-resolution", type=int, default=512)
-    parser.add_argument("--output", default=None, help="Output .npz path. Default: outputs/<input name>.npz")
     args = parser.parse_args()
 
     device = get_device()
@@ -95,8 +95,8 @@ def main() -> None:
     def to_np(t: torch.Tensor) -> np.ndarray:
         return t[0].detach().float().cpu().numpy()  # drop the batch dimension
 
-    output = Path(args.output) if args.output else REPO_ROOT / "outputs" / f"{Path(args.input).stem}.npz"
-    output.parent.mkdir(parents=True, exist_ok=True)
+    output = OUTPUT_DIR / f"{Path(args.input).stem}.npz"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     np.savez(
         output,
         images=to_np(predictions["images"]),
