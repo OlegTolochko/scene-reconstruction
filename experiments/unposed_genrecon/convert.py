@@ -46,11 +46,20 @@ def main():
     args = p.parse_args()
 
     d = np.load(args.npz)
+    # VGGT-Omega output written by infer.py (S images of size H x W):
+    #   image_paths    (S,)              source image paths
+    #   images         (S, 3, H, W)      RGB in [0, 1]
+    #   depth          (S, H, W, 1)      depth per pixel, arbitrary scale
+    #   depth_conf     (S, H, W)         confidence per depth pixel
+    #   extrinsics     (S, 3, 4)         world-to-camera [R | t], OpenCV
+    #   intrinsics     (S, 3, 3)         K
+    #   camera_tokens  (S, 1, 2048)      unused
+    #   registers      (S, 16, 2048)     unused
+
     images, depth, conf = d["images"], d["depth"], d["depth_conf"]
     extr, intr = d["extrinsics"][:, :3, :4].astype(np.float64), d["intrinsics"].astype(np.float64)
     depth, conf = depth.reshape(depth.shape[:3]), conf.reshape(conf.shape[:3])
-    if images.shape[1] == 3:  # (S, 3, H, W) -> (S, H, W, 3)
-        images = images.transpose(0, 2, 3, 1)
+    images = images.transpose(0, 2, 3, 1)  # (S, 3, H, W) -> (S, H, W, 3)
     S, H, W = depth.shape
 
     # Confident points with colours
