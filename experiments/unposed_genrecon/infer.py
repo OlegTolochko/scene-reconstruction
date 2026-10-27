@@ -21,7 +21,7 @@ from vggt_omega.utils.load_fn import load_and_preprocess_images
 from vggt_omega.utils.pose_enc import encoding_to_camera
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CHECKPOINT = REPO_ROOT / "papers/VGGT-Omega/checkpoints/VGGT-Omega-1B-512/model.pt"
+CHECKPOINT = REPO_ROOT / "papers/VGGT-Omega/checkpoints/VGGT-Omega-1B-512/model.pt"
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")
 
 
@@ -53,7 +53,6 @@ def extract_frames(video_path: str, num_frames: int, out_dir: str) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Image folder or video file.")
-    parser.add_argument("--checkpoint", default=str(DEFAULT_CHECKPOINT))
     parser.add_argument("--num-frames", type=int, default=16, help="Frames to sample from a video.")
     parser.add_argument("--image-resolution", type=int, default=512)
     parser.add_argument("--output", default=None, help="Output .npz path. Default: outputs/<input name>.npz")
@@ -72,7 +71,7 @@ def main() -> None:
         print(f"Images: {len(image_names)}")
 
         model = VGGTOmega().eval()
-        model.load_state_dict(torch.load(args.checkpoint, map_location="cpu"))
+        model.load_state_dict(torch.load(CHECKPOINT, map_location="cpu"))
         model = model.to(device)
 
         images = load_and_preprocess_images(image_names, image_resolution=args.image_resolution).to(device)

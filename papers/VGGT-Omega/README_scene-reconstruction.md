@@ -20,7 +20,10 @@ License: FAIR Noncommercial Research License (see LICENSE)
 
 ## Checkpoints
 
-- Checkpoints from Hugging Face `facebook/VGGT-Omega`.
+- Download the `VGGT-Omega-1B-512` checkpoint (`vggt_omega_1b_512.pt`) from
+  Hugging Face `facebook/VGGT-Omega`.
+- For the experiments to work, save it as
+  `papers/VGGT-Omega/checkpoints/VGGT-Omega-1B-512/model.pt`.
 
 ## Setup
 
