@@ -7,6 +7,8 @@ from PIL import Image
 from scipy.spatial.transform import Rotation
 
 ROOM_HEIGHT = 2.7  # floor-to-ceiling height in metres the scene is scaled to
+CONF_PERCENTILE = 30.0  # drop the least confident N% of points
+MAX_POINTS = 300_000  # random subsample written to points3D.txt; None keeps every point
 
 
 def unproject(depth, extrinsics, intrinsics):
@@ -41,8 +43,6 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("npz")
     p.add_argument("scene_dir")
-    p.add_argument("--conf-percentile", type=float, default=30.0, help="Drop the least confident N%% of points.")
-    p.add_argument("--max-points", type=int, default=300_000)
     args = p.parse_args()
 
     d = np.load(args.npz)
@@ -56,10 +56,10 @@ def main():
     # Confident points with colours
     pts = unproject(depth, extr, intr).reshape(-1, 3)
     cols = (np.clip(images.reshape(-1, 3), 0, 1) * 255).astype(np.uint8)
-    keep = (conf.reshape(-1) > np.percentile(conf, args.conf_percentile)) & np.isfinite(pts).all(1)
+    keep = (conf.reshape(-1) > np.percentile(conf, CONF_PERCENTILE)) & np.isfinite(pts).all(1)
     pts, cols = pts[keep], cols[keep]
-    if len(pts) > args.max_points:
-        idx = np.random.default_rng(0).choice(len(pts), args.max_points, replace=False)
+    if MAX_POINTS is not None and len(pts) > MAX_POINTS:
+        idx = np.random.default_rng(0).choice(len(pts), MAX_POINTS, replace=False)
         pts, cols = pts[idx], cols[idx]
 
     # Align: up -> +z, floor at z=0, room height -> metres (same percentiles as GenRecon)
