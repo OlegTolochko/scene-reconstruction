@@ -1,13 +1,3 @@
-"""Turn a VGGT-Omega .npz (from experiments/vggt_omega_inference/infer.py) into the
-scene folder GenRecon reads with --mode Iphone:
-
-    scene/rgb/0000.png ...
-    scene/colmap/{cameras,images,points3D}.txt
-
-The world is rotated so the floor is flat with +z up, and scaled so the room height
-(as GenRecon measures it) equals --room-height metres.
-"""
-
 import argparse
 from pathlib import Path
 
