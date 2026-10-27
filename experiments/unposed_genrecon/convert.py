@@ -6,6 +6,8 @@ import open3d as o3d
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
+ROOM_HEIGHT = 2.7  # floor-to-ceiling height in metres the scene is scaled to
+
 
 def unproject(depth, extrinsics, intrinsics):
     """Depth (S, H, W) + OpenCV world-to-camera poses -> world points (S, H, W, 3)."""
@@ -39,7 +41,6 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("npz")
     p.add_argument("scene_dir")
-    p.add_argument("--room-height", type=float, default=2.7, help="Floor-to-ceiling height in metres.")
     p.add_argument("--conf-percentile", type=float, default=30.0, help="Drop the least confident N%% of points.")
     p.add_argument("--max-points", type=int, default=300_000)
     args = p.parse_args()
@@ -65,7 +66,7 @@ def main():
     R_align = Rotation.align_vectors([[0, 0, 1]], [estimate_up(pts, extr)])[0].as_matrix()
     pts = pts @ R_align.T
     z_floor, z_ceil = np.percentile(pts[:, 2], 0.2), np.percentile(pts[:, 2], 99.97)
-    scale = args.room_height / (z_ceil - z_floor)
+    scale = ROOM_HEIGHT / (z_ceil - z_floor)
     offset = np.array([0.0, 0.0, z_floor])
     pts = (pts - offset) * scale
     print(f"[convert] {S} images {W}x{H}, {len(pts)} points, scale {scale:.3f}")
