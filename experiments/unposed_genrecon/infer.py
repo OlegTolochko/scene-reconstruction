@@ -1,8 +1,9 @@
 """Run VGGT-Omega on a folder of images or a video and save the predictions.
 
-Usage (from the repo root, in the vggt-omega conda env):
-    python experiments/vggt_omega_inference/infer.py papers/VGGT-Omega/examples/forest_road.mp4
-    python experiments/vggt_omega_inference/infer.py path/to/image_folder
+Usage (from the repo root, with the VGGT-Omega uv env from
+papers/VGGT-Omega/README_scene-reconstruction.md):
+    papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/infer.py papers/VGGT-Omega/examples/forest_road.mp4
+    papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/infer.py path/to/image_folder
 """
 
 import argparse
