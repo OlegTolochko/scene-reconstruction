@@ -43,20 +43,29 @@ def extract_frames(video_path: str, num_frames: int, out_dir: str) -> list[str]:
     return paths
 
 
+def pick_evenly(paths: list[str], num_images: int) -> list[str]:
+    """Keep num_images evenly spaced paths (all of them if there are fewer), like GenRecon does."""
+    if len(paths) <= num_images:
+        return paths
+    indices = np.linspace(0, len(paths) - 1, num_images).round().astype(int)
+    return [paths[i] for i in indices]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Image folder or video file.")
-    parser.add_argument("--num-frames", type=int, default=16, help="Frames to sample from a video.")
+    parser.add_argument("--num-images", type=int, default=32, help="Evenly spaced images (or video frames) to use.")
     args = parser.parse_args()
 
     device = get_device()
     print(f"Device: {device}")
- 
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         if os.path.isdir(args.input):
-            image_names = sorted(p for p in glob.glob(os.path.join(args.input, "*")) if p.lower().endswith(IMAGE_EXTS))
+            all_names = sorted(p for p in glob.glob(os.path.join(args.input, "*")) if p.lower().endswith(IMAGE_EXTS))
+            image_names = pick_evenly(all_names, args.num_images)
         else:
-            image_names = extract_frames(args.input, args.num_frames, tmp_dir)
+            image_names = extract_frames(args.input, args.num_images, tmp_dir)
         if not image_names:
             raise SystemExit(f"No images found in {args.input}")
         print(f"Images: {len(image_names)}")
@@ -90,6 +99,7 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     np.savez(
         output,
+        image_paths=np.array(image_names),
         images=to_np(predictions["images"]),
         depth=to_np(depth),
         depth_conf=to_np(depth_conf),

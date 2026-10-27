@@ -12,10 +12,10 @@ Run GenRecon on unposed images by estimating cameras with VGGT-Omega first.
 Run from the repo root, on a video or on a folder of images:
 
 ```bash
-# Video (16 evenly spaced frames by default, change with --num-frames)
+# Video
 papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/infer.py papers/VGGT-Omega/examples/forest_road.mp4
 
-# Folder of images (uses every image in the folder)
+# Folder of images
 papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/infer.py path/to/image_folder
 ```
 
