@@ -14,19 +14,39 @@ Run GenRecon on unposed images by estimating cameras with VGGT-Omega.
 
 
 ```bash
-python experiments/unposed_genrecon/run.py path/to/images_or_video --name my_scene
+python experiments/unposed_genrecon/run.py path/to/images_or_video 
 ```
 
-Everything goes to `outputs/unposed_genrecon/<name>/`:
+## Outputs
+
+Everything goes to `outputs/unposed_genrecon/`:
 
 ```text
-<name>.npz        VGGT-Omega predictions
-scene/            images + COLMAP files in the layout GenRecon's Iphone mode reads
-genrecon/         GenRecon outputs, ending in scene.glb
+outputs/unposed_genrecon/
+├── <name>.npz                    VGGT-Omega predictions (infer.py)
+├── scene/                        GenRecon input (convert.py)
+│   ├── rgb/                      
+│   └── colmap/
+│       ├── cameras.txt           intrinsics, one camera per image
+│       ├── images.txt            poses, z up, scaled to metres
+│       └── points3D.txt          point cloud, used only to place the chunks
+└── <name>_genrecon/              GenRecon outputs
+    ├── scene.glb                 final textured scene (chunked_to_glb.py)
+    ├── mesh.ply                  untextured scene mesh
+    ├── chunk_layout.png          top-down view of the chunks
+    ├── clean_points.ply          point cloud 
+    ├── coords_000.ply ...        occupied voxels (per chunk)
+    ├── cameras.json              images and poses GenRecon used
+    ├── chunk_transforms.json     position and size of each chunk
+    ├── args.json                 arguments of the run
+    ├── to_glb_inputs.pt          input for chunked_to_glb.py
+    ├── chunk_inputs.pt           input for chunked_to_glb.py
+    └── chunks/                   per-chunk GLB pieces, kept so a rerun can resume
 ```
 
-A step is skipped if its output already exists, so rerunning continues where a
-failed run stopped. Delete a step's output to redo it.
+VGGT-Omega and the GenRecon steps are skipped if their output already exists,
+so rerunning continues where a failed run stopped. Delete an output to redo
+that step. `scene/` is shared by all inputs, so `convert.py` always reruns.
 
 ## Steps
 
@@ -43,7 +63,7 @@ failed run stopped. Delete a step's output to redo it.
 Turn the predictions into a coloured point cloud, with camera positions in red:
 
 ```bash
-papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/to_ply.py outputs/unposed_genrecon/my_scene/vggt.npz
+papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/to_ply.py outputs/unposed_genrecon/<name>.npz
 ```
 
 Open the `.ply` in MeshLab, Blender, CloudCompare or https://3dviewer.net.
