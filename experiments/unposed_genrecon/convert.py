@@ -67,16 +67,15 @@ def main():
         idx = np.random.default_rng(0).choice(len(pts), MAX_POINTS, replace=False)
         pts, cols = pts[idx], cols[idx]
 
-    # Align up -> +z, walls along x/y, then floor at z=0
+    # Align up -> +z, walls along x/y, then scale the room height to ROOM_HEIGHT (no translation, like WorldRecon)
     R_align = align_rotation(pts, extr)
     pts = pts @ R_align.T
     z_floor, z_ceil = np.percentile(pts[:, 2], 0.2), np.percentile(pts[:, 2], 99.97)
     scale = ROOM_HEIGHT / (z_ceil - z_floor)
-    offset = np.array([0.0, 0.0, z_floor])
-    pts = (pts - offset) * scale
+    pts = pts * scale
     print(f"[convert] {S} images {W}x{H}, {len(pts)} points, scale {scale:.3f}")
 
-    # World-to-camera in the new frame: X_cam' = R R_align^T X' + s (t + R R_align^T offset)
+    # World-to-camera in the new frame: X_cam' = R R_align^T X' + s t
     out = SCENE_DIR
     (out / "rgb").mkdir(parents=True, exist_ok=True)
     (out / "colmap").mkdir(parents=True, exist_ok=True)
@@ -87,7 +86,7 @@ def main():
             K = intr[i]
             fc.write(f"{i + 1} PINHOLE {W} {H} {K[0, 0]} {K[1, 1]} {K[0, 2]} {K[1, 2]}\n")
             R = extr[i, :, :3] @ R_align.T
-            t = scale * (extr[i, :, 3] + R @ offset)
+            t = scale * extr[i, :, 3]
             qw, qx, qy, qz = Rotation.from_matrix(R).as_quat()[[3, 0, 1, 2]]  # COLMAP wants w first
             fi.write(f"{i + 1} {qw} {qx} {qy} {qz} {t[0]} {t[1]} {t[2]} {i + 1} {name}\n\n")
     with open(out / "colmap/points3D.txt", "w") as f:
