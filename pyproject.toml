@@ -5,7 +5,7 @@ description = "Research project on scene reconstruction"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    # ScanNet++ download (data_download/)
+    # ScanNet++ download (scripts/)
     "munch",
     "pyyaml",
     "tqdm",
