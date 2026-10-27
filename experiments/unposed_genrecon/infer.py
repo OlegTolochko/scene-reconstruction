@@ -47,7 +47,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Image folder or video file.")
     parser.add_argument("--num-frames", type=int, default=16, help="Frames to sample from a video.")
-    parser.add_argument("--image-resolution", type=int, default=512)
     args = parser.parse_args()
 
     device = get_device()
@@ -66,7 +65,7 @@ def main() -> None:
         model.load_state_dict(torch.load(CHECKPOINT, map_location="cpu"))
         model = model.to(device)
 
-        images = load_and_preprocess_images(image_names, image_resolution=args.image_resolution).to(device)
+        images = load_and_preprocess_images(image_names, image_resolution=512).to(device)
 
         with torch.inference_mode():
             predictions = model(images)
