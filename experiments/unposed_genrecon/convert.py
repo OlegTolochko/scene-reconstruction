@@ -6,7 +6,7 @@ import open3d as o3d
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
-ROOM_HEIGHT = 2.7  # floor-to-ceiling height in metres the scene is scaled to
+ROOM_HEIGHT = 2.9  # floor-to-ceiling height in metres the scene is scaled to
 CONF_PERCENTILE = 30.0  # drop the least confident N% of points
 MAX_POINTS = 300_000  # random subsample written to points3D.txt; None keeps every point
 
@@ -22,21 +22,46 @@ def unproject(depth, extrinsics, intrinsics):
     return np.einsum("sji,shwj->shwi", R, cam - t[:, None, None, :])
 
 
-def estimate_up(points, extrinsics):
-    """Up direction: average camera 'up' (OpenCV y points down), refined by a floor plane fit."""
-    up = -extrinsics[:, 1, :3].mean(axis=0)
-    up /= np.linalg.norm(up)
-    height = points @ up
-    low = points[height < np.percentile(height, 20)]
-    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(low))
-    extent = np.percentile(height, 95) - np.percentile(height, 5)
-    (a, b, c, _), _ = pcd.segment_plane(distance_threshold=0.01 * extent, ransac_n=3, num_iterations=2000)
-    normal = np.array([a, b, c]) / np.linalg.norm([a, b, c])
-    normal *= np.sign(normal @ up)
-    if normal @ up > np.cos(np.radians(30)):  # trust the floor only if it roughly agrees
-        return normal
-    print("[convert] no clear floor found, using camera up direction")
-    return up
+def align_rotation(points, extrinsics):
+    """Rotation taking the scene to WorldRecon's frame (paper App. B.4): gravity up -> +z, walls along x/y."""
+    # 1. Initial up: the PCA axis closest to the average camera up (OpenCV camera y points down)
+    cam_up = -extrinsics[:, 1, :3].mean(axis=0)
+    cam_up /= np.linalg.norm(cam_up)
+    _, _, axes = np.linalg.svd(points - points.mean(axis=0), full_matrices=False)
+    up = axes[np.argmax(np.abs(axes @ cam_up))]
+    up *= np.sign(up @ cam_up)
+
+    # Normals on a voxel-downsampled copy (the paper doesn't give its normal settings)
+    size = np.linalg.norm(np.percentile(points, 98, axis=0) - np.percentile(points, 2, axis=0))
+    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points)).voxel_down_sample(size / 200)
+    pcd.estimate_normals(o3d.geometry.KDTreeSearchParamKNN(30))
+    normals = np.asarray(pcd.normals)
+
+    # 2. Refine up: sign-consistent average of near-horizontal surface normals, weighted by |n . up|
+    dots = normals @ up
+    horizontal = np.abs(dots) > 0.7
+    if horizontal.any():
+        up = (dots[horizontal, None] * normals[horizontal]).sum(axis=0)  # sign(d) * |d| * n = d * n
+        up /= np.linalg.norm(up)
+    R_up = Rotation.align_vectors([[0, 0, 1]], [up])[0].as_matrix()
+
+    # 3. Yaw: wall normals vote for their horizontal angle modulo 90 degrees, weighted by horizontal
+    #    magnitude, smoothed with a periodic Gaussian (bin count and width are our choice)
+    normals = normals @ R_up.T
+    wall = normals[np.abs(normals[:, 2]) < 0.2, :2]
+    if len(wall) == 0:
+        print("[convert] no walls found, skipping yaw alignment")
+        return R_up
+    bins, sigma = 360, np.radians(2.0)
+    width = (np.pi / 2) / bins
+    angles = np.arctan2(wall[:, 1], wall[:, 0]) % (np.pi / 2)
+    hist, _ = np.histogram(angles, bins=bins, range=(0, np.pi / 2), weights=np.linalg.norm(wall, axis=1))
+    k = np.arange(bins)
+    kernel = np.exp(-0.5 * (np.minimum(k, bins - k) * width / sigma) ** 2)
+    votes = np.fft.ifft(np.fft.fft(hist) * np.fft.fft(kernel)).real  # circular convolution
+    phi = (np.argmax(votes) + 0.5) * width
+    R_yaw = Rotation.from_euler("z", -phi).as_matrix()
+    return R_yaw @ R_up
 
 
 def main():
@@ -71,8 +96,8 @@ def main():
         idx = np.random.default_rng(0).choice(len(pts), MAX_POINTS, replace=False)
         pts, cols = pts[idx], cols[idx]
 
-    # Align: up -> +z, floor at z=0, room height -> metres (same percentiles as GenRecon)
-    R_align = Rotation.align_vectors([[0, 0, 1]], [estimate_up(pts, extr)])[0].as_matrix()
+    # Align up -> +z, walls along x/y, then floor at z=0
+    R_align = align_rotation(pts, extr)
     pts = pts @ R_align.T
     z_floor, z_ceil = np.percentile(pts[:, 2], 0.2), np.percentile(pts[:, 2], 99.97)
     scale = ROOM_HEIGHT / (z_ceil - z_floor)
