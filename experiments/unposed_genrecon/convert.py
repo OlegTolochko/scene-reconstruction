@@ -6,6 +6,8 @@ import open3d as o3d
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCENE_DIR = REPO_ROOT / "outputs/unposed_genrecon/scene"  # rgb/ + colmap/ for GenRecon
 ROOM_HEIGHT = 2.9  # floor-to-ceiling height in metres the scene is scaled to
 CONF_PERCENTILE = 30.0  # drop the least confident N% of points
 MAX_POINTS = 300_000  # random subsample written to points3D.txt; None keeps every point
@@ -67,7 +69,6 @@ def align_rotation(points, extrinsics):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("npz")
-    p.add_argument("scene_dir")
     args = p.parse_args()
 
     d = np.load(args.npz)
@@ -106,7 +107,7 @@ def main():
     print(f"[convert] {S} images {W}x{H}, {len(pts)} points, scale {scale:.3f}")
 
     # World-to-camera in the new frame: X_cam' = R R_align^T X' + s (t + R R_align^T offset)
-    out = Path(args.scene_dir)
+    out = SCENE_DIR
     (out / "rgb").mkdir(parents=True, exist_ok=True)
     (out / "colmap").mkdir(parents=True, exist_ok=True)
     with open(out / "colmap/cameras.txt", "w") as fc, open(out / "colmap/images.txt", "w") as fi:
