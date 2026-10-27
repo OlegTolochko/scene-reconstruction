@@ -9,7 +9,7 @@ from scipy.spatial.transform import Rotation
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCENE_DIR = REPO_ROOT / "outputs/unposed_genrecon/scene"  # rgb/ + colmap/ for GenRecon
 ROOM_HEIGHT = 2.9  # floor-to-ceiling height in metres the scene is scaled to
-CONF_PERCENTILE = 30.0  # drop the least confident N% of points
+CONF_THRESHOLD = 2.0  # keep points with confidence >= this (WorldRecon, paper App. B.4)
 MAX_POINTS = 300_000  # random subsample written to points3D.txt; None keeps every point
 
 
@@ -91,7 +91,7 @@ def main():
     # Confident points with colours
     pts = unproject(depth, extr, intr).reshape(-1, 3)
     cols = (np.clip(images.reshape(-1, 3), 0, 1) * 255).astype(np.uint8)
-    keep = (conf.reshape(-1) > np.percentile(conf, CONF_PERCENTILE)) & np.isfinite(pts).all(1)
+    keep = (conf.reshape(-1) >= CONF_THRESHOLD) & np.isfinite(pts).all(1)
     pts, cols = pts[keep], cols[keep]
     if MAX_POINTS is not None and len(pts) > MAX_POINTS:
         idx = np.random.default_rng(0).choice(len(pts), MAX_POINTS, replace=False)
