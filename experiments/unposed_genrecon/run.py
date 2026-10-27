@@ -24,7 +24,6 @@ def main():
     p.add_argument("--num-images", type=int, default=32, help="Evenly spaced images (or video frames) to use.")
     args = p.parse_args()
 
-    # Paths fixed by infer.py (<input name>.npz) and convert.py (one shared scene/ folder)
     name = Path(args.input).stem
     npz, scene, recon = OUTPUT_DIR / f"{name}.npz", OUTPUT_DIR / "scene", OUTPUT_DIR / f"{name}_genrecon"
 
