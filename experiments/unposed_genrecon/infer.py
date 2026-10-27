@@ -1,11 +1,3 @@
-"""Run VGGT-Omega on a folder of images or a video and save the predictions.
-
-Usage (from the repo root, with the VGGT-Omega uv env from
-papers/VGGT-Omega/README_scene-reconstruction.md):
-    papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/infer.py papers/VGGT-Omega/examples/forest_road.mp4
-    papers/VGGT-Omega/.venv/bin/python experiments/unposed_genrecon/infer.py path/to/image_folder
-"""
-
 import argparse
 import glob
 import os
@@ -60,7 +52,7 @@ def main() -> None:
 
     device = get_device()
     print(f"Device: {device}")
-
+ 
     with tempfile.TemporaryDirectory() as tmp_dir:
         if os.path.isdir(args.input):
             image_names = sorted(p for p in glob.glob(os.path.join(args.input, "*")) if p.lower().endswith(IMAGE_EXTS))
