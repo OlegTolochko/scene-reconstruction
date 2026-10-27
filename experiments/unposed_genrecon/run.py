@@ -1,18 +1,3 @@
-"""Unposed images or video -> VGGT-Omega -> GenRecon -> scene.glb
-
-Usage (from anywhere; each step uses its own paper's uv env):
-    python experiments/unposed_genrecon/run.py path/to/images_or_video --name my_scene
-
-Steps, all writing to outputs/unposed_genrecon/<name>/:
-    1. infer.py              VGGT-Omega env  -> vggt.npz
-    2. convert.py            GenRecon env    -> scene/ (rgb/ + colmap/ for GenRecon's Iphone mode)
-    3. reconstruct_scene.py  GenRecon env    -> genrecon/to_glb_inputs.pt
-    4. chunked_to_glb.py     GenRecon env    -> genrecon/scene.glb
-
-A step is skipped if its output already exists, so a failed run can be rerun
-and continues where it stopped. Delete a step's output to redo it.
-"""
-
 import argparse
 import os
 import subprocess
@@ -36,23 +21,20 @@ def run(cmd, cwd=ROOT, env=None):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("input", help="Image folder or video file.")
-    p.add_argument("--name", default=None, help="Run name, e.g. the scene ID. Default: the input's name.")
     p.add_argument("--num-images", type=int, default=32, help="Evenly spaced images (or video frames) to use.")
-    p.add_argument("--room-height", type=float, default=2.7, help="Floor-to-ceiling height in metres.")
     args = p.parse_args()
 
-    name = args.name or Path(args.input).stem
-    out = OUTPUT_DIR / name
-    npz, scene, recon = out / "vggt.npz", out / "scene", out / "genrecon"
+    # Paths fixed by infer.py (<input name>.npz) and convert.py (one shared scene/ folder)
+    name = Path(args.input).stem
+    npz, scene, recon = OUTPUT_DIR / f"{name}.npz", OUTPUT_DIR / "scene", OUTPUT_DIR / f"{name}_genrecon"
 
     env = {**os.environ, "ATTN_BACKEND": "flash_attn", "SPARSE_ATTN_BACKEND": "flash_attn"}
 
     if not npz.exists():
-        run([VGGT_PYTHON, HERE / "infer.py", Path(args.input).resolve(),
-             "--num-images", args.num_images, "--name", name])
+        run([VGGT_PYTHON, HERE / "infer.py", Path(args.input).resolve(), "--num-images", args.num_images])
 
-    if not (scene / "colmap/points3D.txt").exists():
-        run([GENRECON_PYTHON, HERE / "convert.py", npz, scene, "--room-height", args.room_height])
+    # Always rerun: scene/ is shared between inputs, so an existing one may belong to another scene
+    run([GENRECON_PYTHON, HERE / "convert.py", npz])
 
     if not (recon / "to_glb_inputs.pt").exists():
         # Settings from GenRecon's README example for smartphone captures. 999 = use every image.
