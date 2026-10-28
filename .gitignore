@@ -226,3 +226,11 @@ runs/
 
 # Local-only tools, not part of the repository.
 local/
+
+
+# Experiment evaluation folders contain source, overriding evaluation/ above.
+!/experiments/*/evaluation/
+!/experiments/*/evaluation/*.py
+
+# Generated benchmark artifacts
+/experiments/3dfront_validation/reports/benchmark/benchmark_results/

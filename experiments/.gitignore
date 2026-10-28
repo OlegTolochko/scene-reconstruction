@@ -1,4 +1,0 @@
-# The repository ignores generated evaluation directories. These contain source.
-!*/evaluation/
-!*/evaluation/*.py
-/3dfront_validation/reports/benchmark/benchmark_results/
