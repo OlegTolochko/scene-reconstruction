@@ -1,0 +1,3 @@
+# The repository ignores generated evaluation directories. These contain source.
+!*/evaluation/
+!*/evaluation/*.py

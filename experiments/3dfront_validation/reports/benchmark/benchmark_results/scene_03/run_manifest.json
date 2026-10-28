@@ -1,0 +1,137 @@
+{
+  "status": "complete",
+  "input": {
+    "room": "e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940",
+    "dataset_revision": "156fc5312ea613d4e92cbf5da1fddfa61bbad3b2",
+    "views": [
+      {
+        "index": "0000",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0000.webp",
+        "image": "0000.png"
+      },
+      {
+        "index": "0001",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0001.webp",
+        "image": "0001.png"
+      },
+      {
+        "index": "0003",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0003.webp",
+        "image": "0003.png"
+      },
+      {
+        "index": "0004",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0004.webp",
+        "image": "0004.png"
+      },
+      {
+        "index": "0006",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0006.webp",
+        "image": "0006.png"
+      },
+      {
+        "index": "0007",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0007.webp",
+        "image": "0007.png"
+      },
+      {
+        "index": "0009",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0009.webp",
+        "image": "0009.png"
+      },
+      {
+        "index": "0010",
+        "source_rgb": "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03/3D-FRONT-TEST-RENDER/e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940/render_0010.webp",
+        "image": "0010.png"
+      }
+    ],
+    "point_count": 10000,
+    "point_seed": 42,
+    "support_points": "Backprojected GT depth from selected input views only",
+    "metric_scale_verified": false,
+    "coordinate_frame": "Blender z-up, source dataset units",
+    "model_input": "RGB plus supplied cameras; depth-derived points define chunks",
+    "reference_shell_used_for_input": false
+  },
+  "command": [
+    "/u/halle/go37pox/home_at/.local/share/miniforge3/envs/genrecon/bin/python",
+    "reconstruct_scene.py",
+    "--mode",
+    "Scannet_iphone",
+    "--path",
+    "/u/halle/go37pox/home_at/scene-reconstruction/data/3dfront/benchmark/scene_03_input",
+    "--output_path",
+    "/u/halle/go37pox/home_at/scene-reconstruction/outputs/genrecon/benchmark/scene_03",
+    "--ss_ckpt",
+    "/u/halle/go37pox/home_at/scene-reconstruction/papers/GenRecon/checkpoints/sparse_structure/ckpts/sparse_structure.pt",
+    "--shape_ckpt",
+    "/u/halle/go37pox/home_at/scene-reconstruction/papers/GenRecon/checkpoints/shape_slat/ckpts/shape_slat.pt",
+    "--tex_ckpt",
+    "/u/halle/go37pox/home_at/scene-reconstruction/papers/GenRecon/checkpoints/texture_slat/ckpts/texture_slat.pt",
+    "--pipeline_config",
+    "configs/pipelines/original.json",
+    "--num_imgs_per_scene",
+    "8",
+    "--seed",
+    "42",
+    "--min_points_per_chunk",
+    "30",
+    "--skip_point_cleaning",
+    "--save_imgs",
+    "--proj_batch_voxels",
+    "2048"
+  ],
+  "checkpoints": {
+    "sparse_structure": {
+      "path": "/u/halle/go37pox/home_at/scene-reconstruction/papers/GenRecon/checkpoints/sparse_structure/ckpts/sparse_structure.pt",
+      "bytes": 2862971400,
+      "sha256": "e18c1caddb2357dbf5839f0f7e1569c50d855fcb47e0871483d99c91a14e2bb7"
+    },
+    "shape_slat": {
+      "path": "/u/halle/go37pox/home_at/scene-reconstruction/papers/GenRecon/checkpoints/shape_slat/ckpts/shape_slat.pt",
+      "bytes": 5410532174,
+      "sha256": "d9e13be151a213bf67565d2a17341fe97328e455814fb2328a59366344e122fb"
+    },
+    "texture_slat": {
+      "path": "/u/halle/go37pox/home_at/scene-reconstruction/papers/GenRecon/checkpoints/texture_slat/ckpts/texture_slat.pt",
+      "bytes": 5410728782,
+      "sha256": "28f99217a4fbcd04f36a5f576905975ae8b874ad63548d6ab8afdb96cf03ed47"
+    }
+  },
+  "torch": "2.9.1+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5080",
+  "host": "nc-11-3-5.kosmos.cit.tum.de",
+  "metric_scale_verified": false,
+  "inference_completed": true,
+  "inference_telemetry": {
+    "elapsed_seconds": 330.96352303500043,
+    "returncode": 0,
+    "sampled_peak_process_gpu_mib": 3538.0,
+    "gpu_memory_sample_count": 122,
+    "gpu_memory_method": "nvidia-smi own subprocess PID, sampled every 2 s; may miss brief peaks; shared GPU"
+  },
+  "preview_export_completed": true,
+  "preview_path": "/u/halle/go37pox/home_at/scene-reconstruction/outputs/genrecon/benchmark/scene_03/preview/scene.glb",
+  "preview_export_command": [
+    "/u/halle/go37pox/home_at/.local/share/miniforge3/envs/genrecon/bin/python",
+    "chunked_to_glb.py",
+    "--inputs",
+    "/u/halle/go37pox/home_at/scene-reconstruction/outputs/genrecon/benchmark/scene_03/to_glb_inputs.pt",
+    "--chunk_inputs",
+    "/u/halle/go37pox/home_at/scene-reconstruction/outputs/genrecon/benchmark/scene_03/chunk_inputs.pt",
+    "--output_dir",
+    "/u/halle/go37pox/home_at/scene-reconstruction/outputs/genrecon/benchmark/scene_03/preview",
+    "--skip_remesh",
+    "--no_chunk_cache",
+    "--simplify_threshold",
+    "250000",
+    "--texture_size",
+    "2048"
+  ],
+  "preview_export_options": {
+    "skip_remesh": true,
+    "simplify_threshold_per_chunk": 250000,
+    "texture_size": 2048
+  }
+}

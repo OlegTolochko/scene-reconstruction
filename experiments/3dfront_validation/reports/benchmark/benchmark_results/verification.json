@@ -1,0 +1,55 @@
+{
+  "passed": true,
+  "completed_scenes": 5,
+  "distinct_houses": 5,
+  "passed_reference_camera_checks": 55,
+  "checkpoint_consistency": true,
+  "report_links_resolve": true,
+  "scenes": [
+    {
+      "scene": "scene_01",
+      "reference_camera_checks": 11,
+      "raw_hash_matches": true,
+      "checkpoint_hashes_match": true,
+      "heldout_isolation_passed": true,
+      "source_metrics_copy_matches": true,
+      "artifacts_present": true
+    },
+    {
+      "scene": "scene_02",
+      "reference_camera_checks": 11,
+      "raw_hash_matches": true,
+      "checkpoint_hashes_match": true,
+      "heldout_isolation_passed": true,
+      "source_metrics_copy_matches": true,
+      "artifacts_present": true
+    },
+    {
+      "scene": "scene_03",
+      "reference_camera_checks": 11,
+      "raw_hash_matches": true,
+      "checkpoint_hashes_match": true,
+      "heldout_isolation_passed": true,
+      "source_metrics_copy_matches": true,
+      "artifacts_present": true
+    },
+    {
+      "scene": "scene_04",
+      "reference_camera_checks": 11,
+      "raw_hash_matches": true,
+      "checkpoint_hashes_match": true,
+      "heldout_isolation_passed": true,
+      "source_metrics_copy_matches": true,
+      "artifacts_present": true
+    },
+    {
+      "scene": "scene_05",
+      "reference_camera_checks": 11,
+      "raw_hash_matches": true,
+      "checkpoint_hashes_match": true,
+      "heldout_isolation_passed": true,
+      "source_metrics_copy_matches": true,
+      "artifacts_present": true
+    }
+  ]
+}

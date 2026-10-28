@@ -1,0 +1,531 @@
+{
+  "room": "e6db34b3-c6a1-4e04-b95a-30c415767e82/Library-27940",
+  "dataset_revision": "156fc5312ea613d4e92cbf5da1fddfa61bbad3b2",
+  "prediction": "/u/halle/go37pox/home_at/scene-reconstruction/outputs/genrecon/benchmark/scene_03/mesh.ply",
+  "prediction_sha256": "537aa5179a52bcb93ee86b5cef53a0043ba72917ca7a2a829ea045057852aba4",
+  "reference_sha256": "8c85cad825c19ad7451b44ee0b14eec5e8bcd07a6591941fe881cacba69ffce8",
+  "input_ids": [
+    "0000",
+    "0001",
+    "0003",
+    "0004",
+    "0006",
+    "0007",
+    "0009",
+    "0010"
+  ],
+  "heldout_ids": [
+    "0002",
+    "0005",
+    "0008"
+  ],
+  "effective_conditioning_ids": [
+    "0000",
+    "0001",
+    "0003",
+    "0004",
+    "0006",
+    "0007",
+    "0009",
+    "0010"
+  ],
+  "dropped_conditioning_ids": [],
+  "chunk_count": 6,
+  "camera_selection_fallbacks": [],
+  "native_camera_selection_policy": "Chunk cube clipped projected bounding-box area >=0.4 of image; closest-camera fallback. See papers/GenRecon/genrecon/datasets/components.py:237 and inference/get_images.py:127.",
+  "settings": {
+    "seed": 42,
+    "area_samples_per_mesh": 100000,
+    "ray_grid": 192,
+    "distance_method": "area-uniform samples to nearest triangle surface, exact CPU query; untrimmed",
+    "thresholds_fraction_gt_diagonal": [
+      0.005,
+      0.01,
+      0.02
+    ],
+    "alignment": "fixed supplied coordinates; no ICP, scale fitting or cropping",
+    "visibility_tolerance": "max(0.002 * GT diagonal, 0.005 * reference depth)",
+    "free_space_tolerance": "max(0.01 * GT diagonal, 0.01 * reference depth)",
+    "failure_flags": "descriptive screening: precision/recall <0.9; missing/extra silhouette >0.05; object recall <0.8 with >=30 samples"
+  },
+  "metric_scale_verified": false,
+  "gt_diagonal_source_units": 2.3992202854540365,
+  "reference_faces": 31478,
+  "prediction_faces": 5010190,
+  "reference_surface_area": 6.387087613721412,
+  "prediction_surface_area": 16.223424620691258,
+  "prediction_to_reference": {
+    "count": 100000,
+    "mean_fraction_diagonal": 0.0947128479773066,
+    "median_fraction_diagonal": 0.025303683767832607,
+    "p95_fraction_diagonal": 0.3585512530424367,
+    "within_threshold": {
+      "0.005": 0.2955,
+      "0.01": 0.36963,
+      "0.02": 0.46984
+    }
+  },
+  "reference_to_prediction": {
+    "count": 100000,
+    "mean_fraction_diagonal": 0.007057835233549081,
+    "median_fraction_diagonal": 0.002765120198073066,
+    "p95_fraction_diagonal": 0.025889354634349906,
+    "within_threshold": {
+      "0.005": 0.63063,
+      "0.01": 0.77242,
+      "0.02": 0.90387
+    }
+  },
+  "threshold_metrics": {
+    "0.005": {
+      "precision": 0.2955,
+      "recall": 0.63063,
+      "fscore": 0.40242982086748075
+    },
+    "0.01": {
+      "precision": 0.36963,
+      "recall": 0.77242,
+      "fscore": 0.4999949294689375
+    },
+    "0.02": {
+      "precision": 0.46984,
+      "recall": 0.90387,
+      "fscore": 0.618288111464574
+    }
+  },
+  "symmetric_mean_distance_fraction_diagonal": 0.05088534160542784,
+  "visibility_stratified_recall": {
+    "visible": {
+      "count": 50658,
+      "mean_fraction_diagonal": 0.0035954414817119876,
+      "median_fraction_diagonal": 0.002347083066274596,
+      "p95_fraction_diagonal": 0.01279923120803761,
+      "within_threshold": {
+        "0.005": 0.7800347427849501,
+        "0.01": 0.9076749970389671,
+        "0.02": 0.9991314303762485
+      }
+    },
+    "occluded": {
+      "count": 49342,
+      "mean_fraction_diagonal": 0.010612574784791915,
+      "median_fraction_diagonal": 0.005503379699532994,
+      "p95_fraction_diagonal": 0.03450800762596365,
+      "within_threshold": {
+        "0.005": 0.4772404847797009,
+        "0.01": 0.6335576182562522,
+        "0.02": 0.8060678529447529
+      }
+    },
+    "unclassified": {
+      "count": 0,
+      "mean_fraction_diagonal": null,
+      "median_fraction_diagonal": null,
+      "p95_fraction_diagonal": null,
+      "within_threshold": {
+        "0.005": null,
+        "0.01": null,
+        "0.02": null
+      }
+    }
+  },
+  "visibility_stratified_recall_effective_conditioning": {
+    "visible": {
+      "count": 50658,
+      "mean_fraction_diagonal": 0.0035954414817119876,
+      "median_fraction_diagonal": 0.002347083066274596,
+      "p95_fraction_diagonal": 0.01279923120803761,
+      "within_threshold": {
+        "0.005": 0.7800347427849501,
+        "0.01": 0.9076749970389671,
+        "0.02": 0.9991314303762485
+      }
+    },
+    "occluded": {
+      "count": 49342,
+      "mean_fraction_diagonal": 0.010612574784791915,
+      "median_fraction_diagonal": 0.005503379699532994,
+      "p95_fraction_diagonal": 0.03450800762596365,
+      "within_threshold": {
+        "0.005": 0.4772404847797009,
+        "0.01": 0.6335576182562522,
+        "0.02": 0.8060678529447529
+      }
+    },
+    "unclassified": {
+      "count": 0,
+      "mean_fraction_diagonal": null,
+      "median_fraction_diagonal": null,
+      "p95_fraction_diagonal": null,
+      "within_threshold": {
+        "0.005": null,
+        "0.01": null,
+        "0.02": null
+      }
+    }
+  },
+  "predicted_surface_input_free_space_violation_fraction": 0.16001,
+  "predicted_surface_input_background_projection_fraction": 0.54949,
+  "predicted_surface_outside_expanded_gt_bounds_fraction": 0.3352,
+  "architectural_context": {
+    "scope": "Additional released assets in supplied coordinates, absent from primary furniture renders/reference; others.glb has no reliable semantic labels. Context only.",
+    "asset_files": [
+      "ceil.glb",
+      "wall.glb",
+      "floor.glb",
+      "others.glb"
+    ],
+    "all_released_assets_geometry": {
+      "reference_faces": 33683,
+      "normalization": "Same furniture-reference diagonal D as primary metrics; full-reference sampling seed 43",
+      "prediction_to_reference": {
+        "count": 100000,
+        "mean_fraction_diagonal": 0.011906279282529892,
+        "median_fraction_diagonal": 0.004147968227535958,
+        "p95_fraction_diagonal": 0.05012931335897897,
+        "within_threshold": {
+          "0.005": 0.64252,
+          "0.01": 0.72282,
+          "0.02": 0.82349
+        }
+      },
+      "reference_to_prediction": {
+        "count": 100000,
+        "mean_fraction_diagonal": 0.06031943025611048,
+        "median_fraction_diagonal": 0.046988528286000086,
+        "p95_fraction_diagonal": 0.17555714995191998,
+        "within_threshold": {
+          "0.005": 0.31586,
+          "0.01": 0.35591,
+          "0.02": 0.40743
+        }
+      },
+      "threshold_metrics": {
+        "0.005": {
+          "precision": 0.64252,
+          "recall": 0.31586,
+          "fscore": 0.4235196210271499
+        },
+        "0.01": {
+          "precision": 0.72282,
+          "recall": 0.35591,
+          "fscore": 0.47696618468013313
+        },
+        "0.02": {
+          "precision": 0.82349,
+          "recall": 0.40743,
+          "fscore": 0.5451443322068047
+        }
+      }
+    },
+    "prediction_near_additional_assets_and_far_from_furniture_at_1pct_D": 0.35319,
+    "prediction_near_furniture_or_additional_assets_at_1pct_D": 0.72282
+  },
+  "heldout": {
+    "gt_valid": 13018,
+    "pred_valid": 46536,
+    "intersection": 13018,
+    "union": 46536,
+    "missing": 0,
+    "extra": 33518,
+    "silhouette_iou": 0.27974041602200445,
+    "depth_coverage": 1.0,
+    "missing_fraction_gt": 0.0,
+    "extra_fraction_pred": 0.7202595839779955,
+    "depth_mae_fraction_diagonal": 0.03698886324511046,
+    "depth_absrel": 0.027732231956843965,
+    "depth_rmse_fraction_diagonal": 0.06806279285837236,
+    "correct_depth_fraction_all_gt": {
+      "0.01": 0.5112920571516362,
+      "0.05": 0.8283914579812567,
+      "0.1": 0.8577354432324473
+    },
+    "per_view": [
+      {
+        "index": "0002",
+        "gt_valid": 4650,
+        "pred_valid": 17239,
+        "intersection": 4650,
+        "union": 17239,
+        "missing": 0,
+        "extra": 12589,
+        "silhouette_iou": 0.2697372237368757,
+        "depth_coverage": 1.0,
+        "missing_fraction_gt": 0.0,
+        "extra_fraction_pred": 0.7302627762631243,
+        "depth_mae_fraction_diagonal": 0.023670933878817347,
+        "depth_absrel": 0.016644077266012948,
+        "depth_rmse_fraction_diagonal": 0.05166037645633371,
+        "correct_depth_fraction_all_gt": {
+          "0.01": 0.6298924731182796,
+          "0.05": 0.9156989247311828,
+          "0.1": 0.9412903225806452
+        }
+      },
+      {
+        "index": "0005",
+        "gt_valid": 4072,
+        "pred_valid": 15147,
+        "intersection": 4072,
+        "union": 15147,
+        "missing": 0,
+        "extra": 11075,
+        "silhouette_iou": 0.26883211196936685,
+        "depth_coverage": 1.0,
+        "missing_fraction_gt": 0.0,
+        "extra_fraction_pred": 0.7311678880306332,
+        "depth_mae_fraction_diagonal": 0.04904664288063984,
+        "depth_absrel": 0.03771679521511609,
+        "depth_rmse_fraction_diagonal": 0.08007896168464591,
+        "correct_depth_fraction_all_gt": {
+          "0.01": 0.381139489194499,
+          "0.05": 0.7527013752455796,
+          "0.1": 0.7836444007858546
+        }
+      },
+      {
+        "index": "0008",
+        "gt_valid": 4296,
+        "pred_valid": 14150,
+        "intersection": 4296,
+        "union": 14150,
+        "missing": 0,
+        "extra": 9854,
+        "silhouette_iou": 0.3036042402826855,
+        "depth_coverage": 1.0,
+        "missing_fraction_gt": 0.0,
+        "extra_fraction_pred": 0.6963957597173145,
+        "depth_mae_fraction_diagonal": 0.03997515115884121,
+        "depth_absrel": 0.030270122488659627,
+        "depth_rmse_fraction_diagonal": 0.07120976748004398,
+        "correct_depth_fraction_all_gt": {
+          "0.01": 0.5062849162011173,
+          "0.05": 0.805633147113594,
+          "0.1": 0.8375232774674115
+        }
+      }
+    ]
+  },
+  "per_object": [
+    {
+      "object_id": 0,
+      "node": "Table_08bd9700-ae85-4722-8a3c-bf394a31799f_3.obj",
+      "geometry": "Table_08bd9700-ae85-4722-8a3c-bf394a31799f_3.obj",
+      "area": 5.254846487249107,
+      "extents_source_units": [
+        1.4361862540245056,
+        0.4889180213212967,
+        0.39374294877052307
+      ],
+      "faces": 12837,
+      "count": 82327,
+      "mean_fraction_diagonal": 0.007727490562925059,
+      "median_fraction_diagonal": 0.002756219101151414,
+      "p95_fraction_diagonal": 0.026769738935342874,
+      "within_threshold": {
+        "0.005": 0.6162012462497115,
+        "0.01": 0.7399030694668821,
+        "0.02": 0.8848008551265077
+      },
+      "visible_sample_fraction": 0.47283394269194795,
+      "visible_recall_at_1pct": 0.8922341819302797,
+      "occluded_recall_at_1pct": 0.6032718894009217
+    },
+    {
+      "object_id": 1,
+      "node": "Chair_62da127b-5543-4a5b-a5f9-582ddcb3d029_2.obj",
+      "geometry": "Chair_62da127b-5543-4a5b-a5f9-582ddcb3d029_2.obj",
+      "area": 0.30803446911801113,
+      "extents_source_units": [
+        0.19679012894630432,
+        0.21599651128053665,
+        0.3998633772134781
+      ],
+      "faces": 10054,
+      "count": 4760,
+      "mean_fraction_diagonal": 0.004742579202781917,
+      "median_fraction_diagonal": 0.0041720755833817656,
+      "p95_fraction_diagonal": 0.012229923562541892,
+      "within_threshold": {
+        "0.005": 0.5476890756302522,
+        "0.01": 0.8838235294117647,
+        "0.02": 1.0
+      },
+      "visible_sample_fraction": 0.6855042016806723,
+      "visible_recall_at_1pct": 0.9095923996322403,
+      "occluded_recall_at_1pct": 0.8276553106212425
+    },
+    {
+      "object_id": 2,
+      "node": "Sofa_6b2d2463-e861-4e0c-af8f-7980092f38a4_1.obj",
+      "geometry": "Sofa_6b2d2463-e861-4e0c-af8f-7980092f38a4_1.obj",
+      "area": 0.5865659785979863,
+      "extents_source_units": [
+        0.4709632694721222,
+        0.49814194440841675,
+        0.4389161914587021
+      ],
+      "faces": 6547,
+      "count": 9181,
+      "mean_fraction_diagonal": 0.0031600427371742484,
+      "median_fraction_diagonal": 0.001677722363381404,
+      "p95_fraction_diagonal": 0.014506516757588355,
+      "within_threshold": {
+        "0.005": 0.8308463130377954,
+        "0.01": 0.9227752968086265,
+        "0.02": 0.9859492430018516
+      },
+      "visible_sample_fraction": 0.578912972443089,
+      "visible_recall_at_1pct": 0.9791157102539981,
+      "occluded_recall_at_1pct": 0.8453181583031557
+    },
+    {
+      "object_id": 3,
+      "node": "Lighting_7e6da177-e9cc-4631-a07b-40aef2265b16_4.obj",
+      "geometry": "Lighting_7e6da177-e9cc-4631-a07b-40aef2265b16_4.obj",
+      "area": 0.23764067875630737,
+      "extents_source_units": [
+        0.27057621628046036,
+        0.27057620882987976,
+        0.1089898943901062
+      ],
+      "faces": 2040,
+      "count": 3732,
+      "mean_fraction_diagonal": 0.004827273641710448,
+      "median_fraction_diagonal": 0.0045497335540397215,
+      "p95_fraction_diagonal": 0.009086497332001894,
+      "within_threshold": {
+        "0.005": 0.5621650589496249,
+        "0.01": 0.9777599142550911,
+        "0.02": 1.0
+      },
+      "visible_sample_fraction": 0.844855305466238,
+      "visible_recall_at_1pct": 0.975895972090073,
+      "occluded_recall_at_1pct": 0.9879101899827288
+    }
+  ],
+  "camera_consistency": [
+    {
+      "index": "0000",
+      "paired_pixels": 4126,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.00015736944664458525
+    },
+    {
+      "index": "0001",
+      "paired_pixels": 4397,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.0002910800625711035
+    },
+    {
+      "index": "0002",
+      "paired_pixels": 4650,
+      "silhouette_iou": 0.9997849924747366,
+      "median_relative_depth_error": 0.0003063479021748215
+    },
+    {
+      "index": "0003",
+      "paired_pixels": 4047,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.00031851502115538377
+    },
+    {
+      "index": "0004",
+      "paired_pixels": 4094,
+      "silhouette_iou": 0.9997557997557998,
+      "median_relative_depth_error": 0.00028061139681585204
+    },
+    {
+      "index": "0005",
+      "paired_pixels": 4072,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.00031385912355985613
+    },
+    {
+      "index": "0006",
+      "paired_pixels": 4465,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.0003029510449683043
+    },
+    {
+      "index": "0007",
+      "paired_pixels": 4397,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.0002841568211022273
+    },
+    {
+      "index": "0008",
+      "paired_pixels": 4296,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.00027745393111137896
+    },
+    {
+      "index": "0009",
+      "paired_pixels": 3633,
+      "silhouette_iou": 1.0,
+      "median_relative_depth_error": 0.00029543356510857306
+    },
+    {
+      "index": "0010",
+      "paired_pixels": 4848,
+      "silhouette_iou": 0.9985581874356334,
+      "median_relative_depth_error": 0.0002681978494116653
+    }
+  ],
+  "camera_consistency_passed": true,
+  "preview_comparison": {
+    "faces": 1472835,
+    "prediction_to_reference": {
+      "count": 100000,
+      "mean_fraction_diagonal": 0.10377549337404987,
+      "median_fraction_diagonal": 0.036316099684826346,
+      "p95_fraction_diagonal": 0.3617493361732168,
+      "within_threshold": {
+        "0.005": 0.26005,
+        "0.01": 0.32419,
+        "0.02": 0.42061
+      }
+    },
+    "reference_to_prediction": {
+      "count": 100000,
+      "mean_fraction_diagonal": 0.007073369308105269,
+      "median_fraction_diagonal": 0.00277000928970771,
+      "p95_fraction_diagonal": 0.025890163595601718,
+      "within_threshold": {
+        "0.005": 0.62995,
+        "0.01": 0.77233,
+        "0.02": 0.90383
+      }
+    },
+    "raw_to_preview": {
+      "count": 100000,
+      "mean_fraction_diagonal": 6.27495453925224e-05,
+      "median_fraction_diagonal": 1.7390337850897917e-07,
+      "p95_fraction_diagonal": 0.00044619220523222915,
+      "within_threshold": {
+        "0.005": 1.0,
+        "0.01": 1.0,
+        "0.02": 1.0
+      }
+    },
+    "preview_to_raw": {
+      "count": 100000,
+      "mean_fraction_diagonal": 5.463245114279582e-06,
+      "median_fraction_diagonal": 1.3663836882848363e-07,
+      "p95_fraction_diagonal": 2.706063818932902e-05,
+      "within_threshold": {
+        "0.005": 1.0,
+        "0.01": 1.0,
+        "0.02": 1.0
+      }
+    },
+    "surface_area": 14.67722138488182
+  },
+  "failure_flags": [
+    "Unmatched furniture-target geometry: 63.0% of sampled predicted surface lies farther than 1% diagonal from primary furniture reference; inspect supplementary-asset comparison before calling it hallucination.",
+    "Incomplete/detail loss: 22.8% of sampled reference furniture surface lies farther than 1% diagonal from prediction.",
+    "Held-out extra silhouettes: 72.0% of predicted foreground lies on reference background.",
+    "Object 0 (Table_08bd9700-ae85-4722-8a3c-bf394a31799f_3.obj): recall@1% diagonal 74.0% (82327 area samples)."
+  ],
+  "elapsed_seconds": 15.116803120996337
+}
