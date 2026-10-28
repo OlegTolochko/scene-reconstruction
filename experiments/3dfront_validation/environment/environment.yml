@@ -1,0 +1,12 @@
+name: 3dfront-validation
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - pillow
+  - matplotlib-base
+  - scipy
+  - trimesh
+  - rtree
+  - openexr-python

@@ -5,7 +5,8 @@
 ```text
 papers/       vendored paper code, each with its own environment
 experiments/  one subfolder per experiment
-scripts/      dataset download and preprocessing
+data_download/ dataset downloaders grouped by dataset
+scripts/      dataset preprocessing
 data/         datasets (not tracked)
 ```
 
@@ -26,7 +27,7 @@ echo 'SCANNETPP_TOKEN=<your token>' > .env
 Then download the data:
 
 ```bash
-uv run python data_download/download_scannetpp.py data_download/download_scannetpp.yml
+uv run python data_download/scannetpp/download_scannetpp.py data_download/scannetpp/download_scannetpp.yml
 ```
 
 ## Papers

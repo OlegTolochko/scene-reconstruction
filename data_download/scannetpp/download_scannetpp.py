@@ -284,7 +284,7 @@ def read_env_token():
     if os.environ.get("SCANNETPP_TOKEN"):
         return os.environ["SCANNETPP_TOKEN"].strip()
     script_dir = Path(__file__).resolve().parent
-    for env_file in [Path.cwd() / ".env", script_dir / ".env", script_dir.parent / ".env"]:
+    for env_file in [Path.cwd() / ".env", script_dir / ".env", script_dir.parent / ".env", script_dir.parents[1] / ".env"]:
         if not env_file.is_file():
             continue
         for line in env_file.read_text().splitlines():
