@@ -95,8 +95,11 @@ def main() -> None:
     def to_np(t: torch.Tensor) -> np.ndarray:
         return t[0].detach().float().cpu().numpy()  # drop the batch dimension
 
-    output = OUTPUT_DIR / f"{Path(args.input).stem}.npz"
+    src = Path(args.input).resolve()
+    name = src.parents[1].name if src.parent.name == "iphone" else src.stem  # ScanNet++: scene ID
+    output = OUTPUT_DIR / f"{name}.npz"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    
     np.savez(
         output,
         image_paths=np.array(image_names),

@@ -23,8 +23,9 @@ def main():
     p.add_argument("input", help="Image folder or video file.")
     p.add_argument("--num-images", type=int, default=32, help="Evenly spaced images (or video frames) to use.")
     args = p.parse_args()
-
-    name = Path(args.input).stem
+    
+    src = Path(args.input).resolve()
+    name = src.parents[1].name if src.parent.name == "iphone" else src.stem  # ScanNet++: scene
     npz, scene, recon = OUTPUT_DIR / f"{name}.npz", OUTPUT_DIR / "scene", OUTPUT_DIR / f"{name}_genrecon"
 
     env = {**os.environ, "ATTN_BACKEND": "flash_attn", "SPARSE_ATTN_BACKEND": "flash_attn"}
