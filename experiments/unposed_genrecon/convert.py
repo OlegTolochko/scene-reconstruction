@@ -82,7 +82,7 @@ def main():
     with open(out / "colmap/cameras.txt", "w") as fc, open(out / "colmap/images.txt", "w") as fi:
         for i in range(S):
             name = f"{i:04d}.png"
-            Image.fromarray((np.clip(images[i], 0, 1) * 255).astype(np.uint8)).save(out / "rgb" / name)
+            Image.open(str(d["image_paths"][i])).convert("RGB").save(out / "rgb" / name)
             K = intr[i]
             fc.write(f"{i + 1} PINHOLE {W} {H} {K[0, 0]} {K[1, 1]} {K[0, 2]} {K[1, 2]}\n")
             R = extr[i, :, :3] @ R_align.T
