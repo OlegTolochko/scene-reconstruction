@@ -83,8 +83,11 @@ def main():
         for i in range(S):
             name = f"{i:04d}.png"
             Image.open(str(d["image_paths"][i])).convert("RGB").save(out / "rgb" / name)
+            # Rescale K to the original image size for GenRecon
+            W0, H0 = Image.open(str(d["image_paths"][i])).size
             K = intr[i]
-            fc.write(f"{i + 1} PINHOLE {W} {H} {K[0, 0]} {K[1, 1]} {K[0, 2]} {K[1, 2]}\n")
+            sx, sy = W0 / W, H0 / H
+            fc.write(f"{i + 1} PINHOLE {W0} {H0} {K[0, 0] * sx} {K[1, 1] * sy} {K[0, 2] * sx} {K[1, 2] * sy}\n")
             R = extr[i, :, :3] @ R_align.T
             t = scale * extr[i, :, 3]
             qw, qx, qy, qz = Rotation.from_matrix(R).as_quat()[[3, 0, 1, 2]]  # COLMAP wants w first
