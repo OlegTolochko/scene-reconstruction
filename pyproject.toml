@@ -10,3 +10,11 @@ dependencies = [
     "pyyaml",
     "tqdm",
 ]
+
+[project.optional-dependencies]
+3dfront = [
+    "numpy",
+    "pillow",
+    "scipy",
+    "OpenEXR>=3.4",
+]

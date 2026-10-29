@@ -1,25 +1,30 @@
-"""Adapt the validated MIDI pilot to GenRecon's existing COLMAP input reader.
+"""Convert rendered 3D-FRONT rooms to GenRecon's COLMAP input layout.
 
-This is a synthetic, supplied-camera smoke run. Depth supplies only a 10k
-visible-point support cloud for chunk placement; the conditioning images are
-RGB. Original metric scale is unknown and is not replaced by an assumed room
-height. No GenRecon or vendored dataset code is changed.
+Supplied camera poses condition RGB inference. A 10k-point cloud backprojected
+from the selected views' GT depth defines scene chunks; this is not RGB-only
+reconstruction. Coordinates retain the source dataset scale.
 """
 
 import argparse
 import json
 from pathlib import Path
 
+import OpenEXR
 import numpy as np
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
-from .validate_room import read_depth, valid_depth
+
+def read_depth(path):
+    with OpenEXR.File(str(path), separate_channels=True) as source:
+        channels = source.channels()
+        key = "V" if "V" in channels else "R" if "R" in channels else next(iter(channels))
+        return np.asarray(channels[key].pixels, dtype=np.float64)
 
 
-def main(root, output, count, seed):
-    if (output / "input_manifest.json").exists():
-        raise SystemExit("Input already prepared; choose a new --output to change settings.")
+def prepare(root, output, count=8, seed=42):
+    if output.exists() and any(output.iterdir()):
+        raise SystemExit("Output directory is not empty; reuse the prepared inputs or choose a new --output.")
     manifest = json.loads((root / "manifest.json").read_text())
     render_dir = root / f"3D-FRONT-TEST-RENDER/{manifest['room']}"
     metadata = json.loads((render_dir / "meta.json").read_text())
@@ -53,7 +58,8 @@ def main(root, output, count, seed):
         # Sample a regular pixel grid before pooling, limiting temporary memory.
         ys, xs = np.mgrid[0:height:4, 0:width:4]
         z = depth[ys, xs]
-        keep = valid_depth(z)
+        # EXR background is encoded as float16's maximum finite value.
+        keep = np.isfinite(z) & (z > 0) & (z < 65504)
         x = (xs + .5 - width/2) / focal * z
         y = -(ys + .5 - height/2) / focal * z
         local = np.stack([x[keep], y[keep], -z[keep]], axis=-1)
@@ -64,6 +70,8 @@ def main(root, output, count, seed):
             raise RuntimeError("Camera conversion failed")
         records.append({"index": index, "source_rgb": str(source), "image": name})
     points = np.concatenate(all_points)
+    if not len(points):
+        raise ValueError("Selected views contain no valid depth points")
     colors = np.concatenate(all_colors)
     picks = np.random.default_rng(seed).choice(len(points), min(10_000, len(points)), replace=False)
     points, colors = points[picks], colors[picks]
@@ -89,4 +97,4 @@ if __name__ == "__main__":
     parser.add_argument("--views", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-    main(args.data, args.output, args.views, args.seed)
+    prepare(args.data, args.output, args.views, args.seed)
