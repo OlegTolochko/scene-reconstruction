@@ -82,9 +82,10 @@ def main():
     with open(out / "colmap/cameras.txt", "w") as fc, open(out / "colmap/images.txt", "w") as fi:
         for i in range(S):
             name = f"{i:04d}.png"
-            Image.open(str(d["image_paths"][i])).convert("RGB").save(out / "rgb" / name)
+            img = Image.open(str(d["image_paths"][i])).convert("RGB")
+            img.save(out / "rgb" / name)
             # Rescale K to the original image size for GenRecon
-            W0, H0 = Image.open(str(d["image_paths"][i])).size
+            W0, H0 = img.size
             K = intr[i]
             sx, sy = W0 / W, H0 / H
             fc.write(f"{i + 1} PINHOLE {W0} {H0} {K[0, 0] * sx} {K[1, 1] * sy} {K[0, 2] * sx} {K[1, 2] * sy}\n")
