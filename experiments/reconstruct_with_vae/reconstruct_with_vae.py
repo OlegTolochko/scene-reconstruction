@@ -12,7 +12,7 @@ import trimesh
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "papers/GenRecon"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "papers/GenRecon"))
 from data_toolkit_scenes.get_slats import process_instance
 from genrecon import models
 from genrecon.modules.sparse import SparseTensor
