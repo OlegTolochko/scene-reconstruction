@@ -40,7 +40,7 @@ Every experiment is evaluated the same way:
   F-score at 10 cm and normal consistency come from points sampled on both meshes.
 
 ```bash
-uv run python scripts/download_scannetpp.py scripts/download_scannetpp_eval.yml  # the 50 scenes, ~57 GB
+uv run python scripts/download_scannetpp.py scripts/download_scannetpp_eval.yml  # the 50 scenes, ~42 GB
 uv run scripts/select_views_scannetpp.py 32  # data/scannetpp/eval_inputs/32views/<scene>/
 # run the method on each input scene and write <pred_dir>/<scene>/mesh.ply in the scan's coordinates
 uv run scripts/evaluate_scannetpp.py <pred_dir>
