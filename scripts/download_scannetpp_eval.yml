@@ -1,0 +1,32 @@
+# ScanNet++ evaluation scenes: the 50 nvs_sem_val scenes with DSLR, laser-scan mesh and iPhone data,
+# about 42 GB on disk. Run from the repo root; the token is read from .env:
+#   uv run python scripts/download_scannetpp.py scripts/download_scannetpp_eval.yml
+
+data_root: data/scannetpp
+root_url: https://scannetpp.mlsg.cit.tum.de/scannetpp/download/v2?version=v1&token=TOKEN&file=FILEPATH
+metadata_only: false
+dry_run: false
+verbose: false
+
+splits: [nvs_sem_val]
+download_splits: [nvs_sem_val]
+meta_files: [splits/nvs_sem_val.txt]
+
+download_assets: [
+  # DSLR: undistorted 1752 x 1168 images and masks, poses (incl. the test views), COLMAP model
+  dslr_resized_undistorted_dir, dslr_resized_undistorted_mask_dir,
+  dslr_nerfstudio_transform_undistorted_path, dslr_colmap_dir,
+  # laser scan: mesh, anonymized vertices
+  scan_mesh_path, scan_mesh_mask_path,
+  # iPhone, for GenRecon's --mode Scannet_iphone: video, COLMAP model (poses, intrinsics, points)
+  iphone_video_path, iphone_colmap_dir,
+]
+
+# assets stored as .zip on the server (unzipped after download)
+zipped_assets: [
+  dslr_resized_undistorted_dir, dslr_resized_undistorted_mask_dir,
+  dslr_nerfstudio_transform_undistorted_path, dslr_colmap_dir,
+  scan_mesh_path,
+  iphone_colmap_dir,
+]
+exclude_assets: {}

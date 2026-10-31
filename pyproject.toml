@@ -9,4 +9,10 @@ dependencies = [
     "munch",
     "pyyaml",
     "tqdm",
+    # ScanNet++ evaluation (scripts/evaluate_scannetpp.py)
+    "numpy",
+    "open3d",
+    "pillow",
+    "scipy",
+    "trimesh",
 ]
