@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GenRecon: stage-1 cells vs. scan cells</title>
+<style>
+  :root { font: 13px/1.4 system-ui, sans-serif; color: #1d1d1f; }
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column; background: #f4f4f5; }
+  header { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 8px 12px; background: #fff;
+           border-bottom: 1px solid #ddd; }
+  label { display: inline-flex; gap: 4px; align-items: center; }
+  #legend .bar { display: inline-block; width: 160px; height: 10px; vertical-align: middle;
+                 background: linear-gradient(90deg, rgb(45,95,230) 0%, rgb(60,200,130) 25%, rgb(245,215,50) 50%, rgb(220,45,40) 100%); }
+  main { flex: 1; position: relative; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .label { position: absolute; top: 6px; padding: 4px 8px; background: rgba(255,255,255,.88); border-radius: 4px;
+           pointer-events: none; white-space: pre; font-size: 12px; }
+  #status { position: absolute; bottom: 8px; left: 12px; color: #555; }
+</style>
+<script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+                 "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<header>
+  <label>Scene <select id="scene"></select></label>
+  <span>Surface
+    <label><input type="radio" name="surface" value="textured" checked> baked texture</label>
+    <label><input type="radio" name="surface" value="distance"> distance to scan</label>
+  </span>
+  <span id="legend">0 <span class="bar"></span> 20 cm+</span>
+  <label><input type="checkbox" id="cells"> cells stage 2 got</label>
+  <label><input type="checkbox" id="meshes" checked> meshes</label>
+  <label><input type="checkbox" id="clip"> cut above <input type="range" id="height" min="0" max="1" step="0.01" value="0.45"> <span id="heightText"></span></label>
+  <span><button id="testView">test view</button> <button id="topView">top-down</button></span>
+</header>
+<main id="main">
+  <canvas id="canvas"></canvas>
+  <div id="status"></div>
+</main>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+
+// Data written by viewer.py, relative to this page when served from the repository root.
+const DATA = "../../../outputs/genrecon_oracle_occupancy/viewer/";
+const $ = (id) => document.getElementById(id);
+
+const renderer = new THREE.WebGLRenderer({ canvas: $("canvas"), antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setScissorTest(true);
+const environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(60, 1, 0.02, 500);  // shared by all panels
+const controls = new OrbitControls(camera, $("canvas"));
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+const loader = new GLTFLoader();
+
+// One panel per mesh, side by side. objects caches what is loaded for the current scene.
+const panels = [
+  { run: null, title: "Laser scan" },
+  { run: "baseline", title: "Baseline: stage-1 cells", cellColor: 0xe0603a },
+  { run: "oracle", title: "Oracle: scan cells seen by the input views", cellColor: 0x2e9e4f },
+].map((panel) => {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf4f4f5);
+  scene.environment = environment;
+  const light = new THREE.DirectionalLight(0xffffff, 1.2);  // follows the camera, see render()
+  scene.add(light, light.target, new THREE.HemisphereLight(0xffffff, 0x666666, 0.6));
+  const label = document.createElement("div");
+  label.className = "label";
+  $("main").appendChild(label);
+  return { ...panel, scene, light, label, group: new THREE.Group(), objects: {} };
+});
+
+let sceneName = null, meta = null, bounds = null;
+
+function prepare(root, distance) {
+  const color = new THREE.Color();
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const colors = o.geometry.getAttribute("color");
+    if (colors) {  // stored as sRGB, three.js expects linear vertex colours
+      for (let i = 0; i < colors.count; i++) {
+        color.fromBufferAttribute(colors, i).convertSRGBToLinear();
+        colors.setXYZ(i, color.r, color.g, color.b);
+      }
+    }
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      m.side = THREE.DoubleSide;
+      m.metalness = 0;  // no reflections: show the baked colour as it is
+      m.metalnessMap = null;
+      if (distance) { m.vertexColors = true; m.map = null; m.roughness = 1; }
+    }
+  });
+  return root;
+}
+
+async function fetchObject(panel, kind) {
+  const url = DATA + `${sceneName}/`;
+  if (kind === "cells") {
+    const centres = new Float32Array(await (await fetch(url + `${panel.run}_cells.bin`)).arrayBuffer());
+    const size = meta.cell * 0.8, count = centres.length / 3;
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(size, size, size),
+                                         new THREE.MeshStandardMaterial({ color: panel.cellColor, roughness: 0.8 }), count);
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < count; i++) mesh.setMatrixAt(i, m.makeTranslation(centres[3 * i], centres[3 * i + 1], centres[3 * i + 2]));
+    return mesh;
+  }
+  const file = panel.run ? `${panel.run}${kind === "distance" ? "_distance" : ""}.glb` : "scan.glb";
+  return prepare((await loader.loadAsync(url + file)).scene, kind === "distance");
+}
+
+function load(panel, kind) {
+  // kind: "textured" | "distance" | "cells". Loaded on first use; added to the group of the scene it
+  // was requested for, so a load that finishes after switching scenes is not shown.
+  if (!(kind in panel.objects)) {
+    const group = panel.group;
+    panel.objects[kind] = fetchObject(panel, kind).then((object) => {
+      object.visible = false;
+      group.add(object);
+      return object;
+    });
+  }
+  return panel.objects[kind];
+}
+
+async function updateVisibility() {
+  const surface = document.querySelector("input[name=surface]:checked").value;
+  $("legend").style.visibility = surface === "distance" ? "visible" : "hidden";
+  $("status").textContent = "loading…";
+  await Promise.all(panels.map(async (p) => {
+    const shown = [];
+    if ($("meshes").checked) shown.push(await load(p, p.run ? surface : "textured"));  // the scan is the reference
+    if ($("cells").checked && p.run) shown.push(await load(p, "cells"));
+    for (const object of p.group.children) object.visible = shown.includes(object);
+  }));
+  $("status").textContent = "";
+}
+
+function updateClip() {
+  const h = bounds.min.y + Number($("height").value) * (bounds.max.y - bounds.min.y);
+  clipPlane.constant = h;
+  renderer.clippingPlanes = $("clip").checked ? [clipPlane] : [];
+  $("heightText").textContent = `${(h - bounds.min.y).toFixed(2)} m above the floor`;
+}
+
+function testView() {
+  $("clip").checked = false;
+  updateClip();
+  camera.position.fromArray(meta.camera.position);
+  camera.fov = meta.camera.fov;
+  camera.updateProjectionMatrix();
+  controls.target.fromArray(meta.camera.position).lerp(new THREE.Vector3().fromArray(meta.camera.target), 1.5);
+  controls.update();
+}
+
+function topView() {
+  $("clip").checked = true;
+  updateClip();
+  const centre = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
+  camera.fov = 45;
+  camera.updateProjectionMatrix();
+  // Fit the floor plan (x across, z down the panel) into the panel, looking straight down.
+  const distance = 0.55 * Math.max(size.x / camera.aspect, size.z) / Math.tan(THREE.MathUtils.degToRad(22.5));
+  controls.target.set(centre.x, bounds.min.y, centre.z);
+  camera.position.set(centre.x, bounds.min.y + distance, centre.z + 1e-3);
+  controls.update();
+}
+
+function metricsText(run) {
+  const m = meta.runs[run];
+  return `\nF@2/5/10cm ${m["fscore@0.02"].toFixed(3)} / ${m["fscore@0.05"].toFixed(3)} / ${m.fscore.toFixed(3)}` +
+         `   prec@10cm ${m.precision.toFixed(3)}   rec@10cm ${m.recall.toFixed(3)}` +
+         `\ndepth MAE ${(m.depth_mae * 100).toFixed(1)} cm   completeness ${m.completeness.toFixed(3)}   ${m.cells} cells`;
+}
+
+async function loadScene(name) {
+  sceneName = name;
+  location.hash = name;
+  meta = await (await fetch(DATA + `${name}/meta.json`)).json();
+  for (const p of panels) {
+    p.scene.remove(p.group);
+    p.group = new THREE.Group();
+    p.scene.add(p.group);
+    p.objects = {};
+    p.label.textContent = p.title + (p.run ? metricsText(p.run) : "");
+  }
+  $("status").textContent = "loading…";
+  bounds = new THREE.Box3().setFromObject(await load(panels[0], "textured"));
+  testView();
+  await updateVisibility();
+}
+
+function resize() {
+  const { width, height } = $("main").getBoundingClientRect();
+  const w = Math.floor(width / panels.length);
+  renderer.setSize(width, height, false);
+  camera.aspect = w / height;
+  camera.updateProjectionMatrix();
+  panels.forEach((p, i) => { p.label.style.left = `${i * w + 6}px`; });
+}
+
+function render() {
+  const { width, height } = $("main").getBoundingClientRect();
+  const w = Math.floor(width / panels.length);
+  panels.forEach((p, i) => {
+    p.light.position.copy(camera.position);
+    p.light.target.position.copy(controls.target);
+    renderer.setViewport(i * w, 0, w - 2, height);
+    renderer.setScissor(i * w, 0, w - 2, height);
+    renderer.render(p.scene, camera);
+  });
+  requestAnimationFrame(render);
+}
+
+const scenes = await (await fetch(DATA + "scenes.json")).json();
+for (const s of scenes) $("scene").add(new Option(s, s));
+$("scene").value = scenes.includes(location.hash.slice(1)) ? location.hash.slice(1) : scenes[0];  // e.g. index.html#5f99900f09
+$("scene").onchange = () => loadScene($("scene").value);
+for (const el of document.querySelectorAll("input[name=surface], #cells, #meshes")) el.onchange = updateVisibility;
+$("height").oninput = $("clip").onchange = updateClip;
+$("testView").onclick = testView;
+$("topView").onclick = topView;
+window.addEventListener("resize", resize);
+resize();
+render();
+loadScene($("scene").value);
+</script>
+</body>
+</html>
