@@ -9,6 +9,26 @@ stage 1 predicted in the baseline runs, and reruns GenRecon with stage 1's cells
 cells that the input views see (the oracle). Everything else matches the baseline: the input views, chunk
 layout, seed and settings.
 
+## Overview
+
+```
+scene-reconstruction/
+├── data/scannetpp/
+│   ├── data/<scene>/
+│   └── eval_inputs/<N>views/<scene>/
+├── ...
+├── experiments/
+│   ├── genrecon_baseline/
+│   └── genrecon_oracle_occupancy/              this experiment
+└── outputs/
+    ├── genrecon_baseline/<N>views/<scene>/     baseline runs (inputs)
+    └── genrecon_oracle_occupancy/
+        ├── gt/<N>views/<scene>.npz             scan cells (occupancy.py)
+        ├── <N>views/<scene>/                   oracle runs (run.py)
+        ├── baked/<baseline|oracle>/<scene>/    textured meshes (bake.py)
+        └── viewer/<scene>/                     viewer data (viewer.py)
+```
+
 Requires the baseline runs (`experiments/genrecon_baseline`) and the GenRecon env.
 
 ```bash
