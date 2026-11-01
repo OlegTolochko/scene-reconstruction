@@ -11,6 +11,7 @@ SCENE_DIR = REPO_ROOT / "outputs/unposed_genrecon/scene"  # rgb/ + colmap/ for G
 ROOM_HEIGHT = 2.9  # floor-to-ceiling height in metres the scene is scaled to
 CONF_THRESHOLD = 2.0  # keep points with confidence >= this (WorldRecon, paper App. B.4)
 MAX_POINTS = 300_000  # random subsample written to points3D.txt; None keeps every point
+STAT_NB_NEIGHBORS, STAT_STD_RATIO = 20, 3.0  # statistical outlier removal, as passed to GenRecon in run.py
 
 
 def unproject(depth, extrinsics, intrinsics):
@@ -73,6 +74,12 @@ def main():
     if MAX_POINTS is not None and len(pts) > MAX_POINTS:
         idx = np.random.default_rng(0).choice(len(pts), MAX_POINTS, replace=False)
         pts, cols = pts[idx], cols[idx]
+
+    # Drop floating points before the floor/ceiling percentiles.
+    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
+    _, inliers = pcd.remove_statistical_outlier(nb_neighbors=STAT_NB_NEIGHBORS, std_ratio=STAT_STD_RATIO)
+    print(f"[convert] statistical outlier removal kept {len(inliers)}/{len(pts)} points")
+    pts, cols = pts[inliers], cols[inliers]
 
     # Align up -> +z, walls along x/y, then scale the room height to ROOM_HEIGHT (no translation, like WorldRecon)
     R_align = align_rotation(pts, extr)
