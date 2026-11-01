@@ -25,15 +25,22 @@ def unproject(depth, extrinsics, intrinsics):
 
 
 def align_rotation(points, extrinsics):
-    """Rotation taking the mean up direction of the cameras to +z"""
-    # TODO: this is not robust - WorldRecon uses a more sophisticated method to find the up direction we should probably do the same
-    cam_up = -extrinsics[:, 1, :3].mean(axis=0) # Mean up direction in camera 1 coordinates 
-    cam_up /= np.linalg.norm(cam_up) # noramlize
-    _, _, axes = np.linalg.svd(points - points.mean(axis=0), full_matrices=False) # PCA to find the principal axes of the point cloud
-    up = axes[np.argmax(np.abs(axes @ cam_up))] # up direction is most similar to the camera up direction 
-    up *= np.sign(up @ cam_up)
+    """Rotation taking up (from near-vertical normals) to +z and the walls onto x/y."""
+    cam_up = -extrinsics[:, 1, :3].mean(axis=0)
+    up = cam_up / np.linalg.norm(cam_up)
+    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+    pcd.estimate_normals(o3d.geometry.KDTreeSearchParamKNN(30))  # neighbour count, so no scale needed
+    n = np.asarray(pcd.normals)
+    for max_angle in (30, 10):  # coarse, then refine
+        d = n @ up
+        near = np.abs(d) > np.cos(np.radians(max_angle))
+        up = (n[near] * np.sign(d[near])[:, None]).mean(axis=0)
+        up /= np.linalg.norm(up)
     R_up = Rotation.align_vectors([[0, 0, 1]], [up])[0].as_matrix()
-    return R_up
+    walls = n @ R_up.T
+    walls = walls[np.abs(walls[:, 2]) < 0.2]
+    phi = np.angle(np.exp(4j * np.arctan2(walls[:, 1], walls[:, 0])).mean()) / 4
+    return Rotation.from_euler("z", -phi).as_matrix() @ R_up
 
 
 def main():
