@@ -96,7 +96,7 @@ def main() -> None:
         return t[0].detach().float().cpu().numpy()  # drop the batch dimension
 
     src = Path(args.input).resolve()
-    name = src.parents[1].name if src.parent.name == "iphone" else src.stem  # ScanNet++: scene ID
+    name = src.parents[1].name if src.parent.name in ("iphone", "dslr") else src.stem # ScanNet++: scene ID
     output = OUTPUT_DIR / f"{name}.npz"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
