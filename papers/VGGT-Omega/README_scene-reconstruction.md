@@ -18,13 +18,23 @@ License: FAIR Noncommercial Research License (see LICENSE)
 - The root `.gitignore` ignores every `data/` folder, so it has an exception
   for `training/data/`, which holds dataloader source code.
 
-## Downloaded at Runtime (not tracked)
+## Checkpoints
 
-- Checkpoints from Hugging Face `facebook/VGGT-Omega`.
-- `skyseg.onnx`, fetched by `visual_util.py` into the current working directory.
-- Eval datasets, fetched by `eval/prepare.py`.
+- Download the `VGGT-Omega-1B-512` checkpoint (`vggt_omega_1b_512.pt`) from
+  Hugging Face `facebook/VGGT-Omega`.
+- For the experiments to work, save it as
+  `papers/VGGT-Omega/checkpoints/VGGT-Omega-1B-512/model.pt`.
 
 ## Setup
 
-Not set up yet. Upstream needs Python 3.10 or newer and torch 2.6 or newer
-(see `README.md` and `pyproject.toml`).
+This setup uses the same torch and CUDA versions as
+GenRecon (torch 2.9.1 with CUDA 13.0), so it also runs on Blackwell GPUs.
+
+```bash
+cd papers/VGGT-Omega
+uv venv --python 3.12 --prompt vggt-omega .venv
+source .venv/bin/activate
+uv pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cu130
+uv pip install -e .
+```
+
