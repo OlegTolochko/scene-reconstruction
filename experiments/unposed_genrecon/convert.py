@@ -46,6 +46,7 @@ def align_rotation(points, extrinsics):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("npz")
+    p.add_argument("--out", type=Path, default=SCENE_DIR, help="Scene folder to write rgb/ and colmap/ into.")
     args = p.parse_args()
 
     d = np.load(args.npz)
@@ -87,7 +88,7 @@ def main():
     print(f"[convert] {S} images {W}x{H}, {len(pts)} points")
 
     # World-to-camera in the rotated frame: X_cam = (R R_align^T) X' + t
-    out = SCENE_DIR
+    out = args.out
     (out / "rgb").mkdir(parents=True, exist_ok=True)
     (out / "colmap").mkdir(parents=True, exist_ok=True)
     with open(out / "colmap/cameras.txt", "w") as fc, open(out / "colmap/images.txt", "w") as fi:

@@ -55,6 +55,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Image folder or video file.")
     parser.add_argument("--num-images", type=int, default=32, help="Evenly spaced images (or video frames) to use.")
+    parser.add_argument("--output", type=Path, help="Where to save the .npz (default: outputs/unposed_genrecon/<name>.npz).")
     args = parser.parse_args()
 
     device = get_device()
@@ -97,8 +98,8 @@ def main() -> None:
 
     src = Path(args.input).resolve()
     name = src.parents[1].name if src.parent.name in ("iphone", "dslr") else src.stem # ScanNet++: scene ID
-    output = OUTPUT_DIR / f"{name}.npz"
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output = args.output or OUTPUT_DIR / f"{name}.npz"
+    output.parent.mkdir(parents=True, exist_ok=True)
     
     np.savez(
         output,
