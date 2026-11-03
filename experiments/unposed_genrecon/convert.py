@@ -11,7 +11,7 @@ SCENE_DIR = REPO_ROOT / "outputs/unposed_genrecon/scene"  # rgb/ + colmap/ for G
 ROOM_HEIGHT = 2.9  # floor-to-ceiling height in metres the scene is scaled to
 CONF_THRESHOLD = 2.0  # keep points with confidence >= this (WorldRecon, paper App. B.4)
 MAX_POINTS = 300_000  # random subsample written to points3D.txt; None keeps every point
-STAT_NB_NEIGHBORS, STAT_STD_RATIO = 20, 3.0  # statistical outlier removal, as passed to GenRecon in run.py
+STAT_NB_NEIGHBORS, STAT_STD_RATIO = 20, 3.0  # outlier removal for estimating alignment/scale only
 
 
 def unproject(depth, extrinsics, intrinsics):
@@ -75,16 +75,17 @@ def main():
         idx = np.random.default_rng(0).choice(len(pts), MAX_POINTS, replace=False)
         pts, cols = pts[idx], cols[idx]
 
-    # Drop floating points before the floor/ceiling percentiles.
+    # Ignore floating points when estimating the alignment and scale. All points are still
+    # written out: GenRecon cleans the cloud itself, so filtering here too would clean it twice.
     pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
     _, inliers = pcd.remove_statistical_outlier(nb_neighbors=STAT_NB_NEIGHBORS, std_ratio=STAT_STD_RATIO)
-    print(f"[convert] statistical outlier removal kept {len(inliers)}/{len(pts)} points")
-    pts, cols = pts[inliers], cols[inliers]
+    print(f"[convert] {len(inliers)}/{len(pts)} inliers used for alignment and scale")
 
     # Align up -> +z, walls along x/y, then scale the room height to ROOM_HEIGHT (no translation, like WorldRecon)
-    R_align = align_rotation(pts, extr)
+    R_align = align_rotation(pts[inliers], extr)
     pts = pts @ R_align.T
-    z_floor, z_ceil = np.percentile(pts[:, 2], 0.2), np.percentile(pts[:, 2], 99.97)
+    z_in = pts[inliers, 2]
+    z_floor, z_ceil = np.percentile(z_in, 0.2), np.percentile(z_in, 99.97)
     scale = ROOM_HEIGHT / (z_ceil - z_floor)
     pts = pts * scale
     print(f"[convert] {S} images {W}x{H}, {len(pts)} points, scale {scale:.3f}")
