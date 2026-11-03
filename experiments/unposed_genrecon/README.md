@@ -28,7 +28,7 @@ outputs/unposed_genrecon/
 │   ├── rgb/                      
 │   └── colmap/
 │       ├── cameras.txt           intrinsics, one camera per image
-│       ├── images.txt            poses, z up, scaled to metres
+│       ├── images.txt            poses, z up, VGGT-Omega's scale
 │       └── points3D.txt          point cloud, used only to place the chunks
 └── <name>_genrecon/              GenRecon outputs
     ├── scene.glb                 final textured scene (chunked_to_glb.py)
@@ -53,7 +53,7 @@ that step. `scene/` is shared by all inputs, so `convert.py` always reruns.
 | Step | Script | Env |
 | ---- | ------ | --- |
 | Estimate cameras and depth | `infer.py` | VGGT-Omega |
-| Align, scale, write COLMAP files | `convert.py` | GenRecon |
+| Align, write COLMAP files | `convert.py` | GenRecon |
 | Generate the scene | `papers/GenRecon/reconstruct_scene.py` | GenRecon |
 | Bake `scene.glb` | `papers/GenRecon/chunked_to_glb.py` | GenRecon |
 
