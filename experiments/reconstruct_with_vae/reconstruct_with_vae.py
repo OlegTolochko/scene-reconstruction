@@ -118,7 +118,8 @@ def prepare_chunks(scene, output, chunks, source_to_z, textures):
             mesh.apply_transform(Y_TO_Z.T)
             normalized.add_geometry(mesh)
         if not normalized.geometry:
-            raise ValueError(f"GenRecon chunk {chunk['index']} has no GT surface; check alignment")
+            print(f"Skipping GenRecon chunk {chunk['index']}: no GT surface", flush=True)
+            continue
         directory = output / f"chunk_{chunk['index']:03d}"
         directory.mkdir()
         normalized.export(directory / "normalized.glb")
