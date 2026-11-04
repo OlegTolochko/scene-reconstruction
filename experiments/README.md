@@ -1,9 +1,6 @@
-Here you can test out experiments you want in subfolders.
+# Experiments
 
-structure should be:
-```
-experiments/
-    experiment1/
-    experiment2/
-    ...
-```
+Each experiment has its own directory with its script and instructions.
+
+- [VAE reconstruction](reconstruct_with_vae/README.md)
+- [GenRecon baseline](genrecon_baseline/README.md)

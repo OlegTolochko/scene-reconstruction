@@ -11,3 +11,11 @@ uv run scripts/select_views_scannetpp.py 32
 uv run experiments/genrecon_baseline/run.py 32 # outputs/genrecon_baseline/<N>views/<scene>/mesh.ply.zst
 uv run scripts/evaluate_scannetpp.py outputs/genrecon_baseline/32views
 ```
+
+3D-FRONT ([preparation](../../README.md#3d-front-evaluation)) uses the same GenRecon settings:
+
+```bash
+uv run scripts/select_views_scannetpp.py 32 --data data/3dfront
+uv run experiments/genrecon_baseline/run.py 32 --data data/3dfront --output outputs/genrecon_baseline/3dfront
+uv run scripts/evaluate_scannetpp.py outputs/genrecon_baseline/3dfront/32views --data data/3dfront
+```

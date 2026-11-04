@@ -7,6 +7,7 @@ papers/       vendored paper code, each with its own environment
 experiments/  one subfolder per experiment
 scripts/      dataset download, preprocessing and evaluation
 data/         datasets (not tracked)
+outputs/      generated experiment results (not tracked)
 ```
 
 ## Setup
@@ -46,6 +47,32 @@ uv run scripts/select_views_scannetpp.py 32  # data/scannetpp/eval_inputs/32view
 uv run scripts/evaluate_scannetpp.py <pred_dir>
 ```
 
+### 3D-FRONT evaluation
+
+The same scripts and metrics, on 3D-FRONT rooms rendered from cameras inside the room. The reference
+mesh is furniture plus the room shell (walls, floor, ceiling) in metres. A room is written in the
+ScanNet++ layout under `data/3dfront/`, with 32 held-out test views. GenRecon places its chunks with GT
+depth points from the non-test renders, where ScanNet++ uses COLMAP points from all DSLR frames.
+
+Needs Blender 4.5+ and the room's original `<house>.json` from
+[3D-FRONT](https://github.com/3D-FRONT-FUTURE/3D-FRONT-ToolBox), which gives the metric scale of the
+normalized MIDI GLBs (the renderer fails if the room architecture does not match within 5 mm).
+
+```bash
+uv run python scripts/download_rooms.py  # a MIDI room to data/3dfront/pilot
+blender -b --python-exit-code 1 -P scripts/render_3dfront.py -- --data data/3dfront/pilot \
+    --output data/3dfront/renders/pilot --front-json data/3dfront/original_json/<house>.json
+papers/GenRecon/.venv/bin/python scripts/prepare_3dfront.py --renders data/3dfront/renders/pilot --scene pilot
+uv run scripts/select_views_scannetpp.py 32 --data data/3dfront
+uv run scripts/evaluate_scannetpp.py <pred_dir> --data data/3dfront
+```
+
+## Experiments
+
+- [VAE reconstruction](experiments/reconstruct_with_vae/README.md)
+- [GenRecon baseline](experiments/genrecon_baseline/README.md)
+- [GenRecon setup and inference](papers/GenRecon/README_scene-reconstruction.md)
+
 ## Papers
 
 | Name     | Folder          | Upstream |
@@ -53,4 +80,4 @@ uv run scripts/evaluate_scannetpp.py <pred_dir>
 | GenRecon | papers/GenRecon | https://github.com/kasothaphie/GenRecon |
 | VGGT-Omega | papers/VGGT-Omega | https://github.com/facebookresearch/vggt-omega |
 
-See `papers/README.md` for imported commits and licenses.
+See [imported papers and licenses](papers/README.md) for imported commits and licenses.

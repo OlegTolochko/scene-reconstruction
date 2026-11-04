@@ -82,7 +82,7 @@ cd papers/GenRecon
 uv venv --python 3.12 --prompt genrecon .venv
 source .venv/bin/activate
 uv pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cu130
-uv pip install imageio imageio-ffmpeg tqdm easydict opencv-python-headless ninja trimesh \
+uv pip install imageio imageio-ffmpeg tqdm easydict opencv-python-headless ninja trimesh shapely \
     transformers==4.57.3 tensorboard pandas lpips zstandard kornia timm pillow open3d==0.19.0 \
     matplotlib plyfile safetensors huggingface_hub setuptools wheel \
     "utils3d @ git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
