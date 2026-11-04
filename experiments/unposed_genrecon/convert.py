@@ -8,10 +8,9 @@ from scipy.spatial.transform import Rotation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCENE_DIR = REPO_ROOT / "outputs/unposed_genrecon/scene"  # rgb/ + colmap/ for GenRecon
-ROOM_HEIGHT = 2.9  # floor-to-ceiling height in metres the scene is scaled to
 CONF_THRESHOLD = 2.0  # keep points with confidence >= this (WorldRecon, paper App. B.4)
 MAX_POINTS = 300_000  # random subsample written to points3D.txt; None keeps every point
-STAT_NB_NEIGHBORS, STAT_STD_RATIO = 20, 3.0  # statistical outlier removal, as passed to GenRecon in run.py
+STAT_NB_NEIGHBORS, STAT_STD_RATIO = 20, 3.0  # outlier removal for estimating the alignment only
 
 
 def unproject(depth, extrinsics, intrinsics):
@@ -47,6 +46,7 @@ def align_rotation(points, extrinsics):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("npz")
+    p.add_argument("--out", type=Path, default=SCENE_DIR, help="Scene folder to write rgb/ and colmap/ into.")
     args = p.parse_args()
 
     d = np.load(args.npz)
@@ -75,22 +75,20 @@ def main():
         idx = np.random.default_rng(0).choice(len(pts), MAX_POINTS, replace=False)
         pts, cols = pts[idx], cols[idx]
 
-    # Drop floating points before the floor/ceiling percentiles.
+    # Ignore floating points when estimating the alignment. All points are still written
+    # out: GenRecon cleans the cloud itself, so filtering here too would clean it twice.
     pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
     _, inliers = pcd.remove_statistical_outlier(nb_neighbors=STAT_NB_NEIGHBORS, std_ratio=STAT_STD_RATIO)
-    print(f"[convert] statistical outlier removal kept {len(inliers)}/{len(pts)} points")
-    pts, cols = pts[inliers], cols[inliers]
+    print(f"[convert] {len(inliers)}/{len(pts)} inliers used for alignment")
 
-    # Align up -> +z, walls along x/y, then scale the room height to ROOM_HEIGHT (no translation, like WorldRecon)
-    R_align = align_rotation(pts, extr)
+    # Align up -> +z (GenRecon assumes z up), walls along x/y. Scale is left as VGGT-Omega
+    # predicts it, just as GenRecon takes COLMAP's arbitrary scale.
+    R_align = align_rotation(pts[inliers], extr)
     pts = pts @ R_align.T
-    z_floor, z_ceil = np.percentile(pts[:, 2], 0.2), np.percentile(pts[:, 2], 99.97)
-    scale = ROOM_HEIGHT / (z_ceil - z_floor)
-    pts = pts * scale
-    print(f"[convert] {S} images {W}x{H}, {len(pts)} points, scale {scale:.3f}")
+    print(f"[convert] {S} images {W}x{H}, {len(pts)} points")
 
-    # World-to-camera in the new frame: X_cam' = R R_align^T X' + s t
-    out = SCENE_DIR
+    # World-to-camera in the rotated frame: X_cam = (R R_align^T) X' + t
+    out = args.out
     (out / "rgb").mkdir(parents=True, exist_ok=True)
     (out / "colmap").mkdir(parents=True, exist_ok=True)
     with open(out / "colmap/cameras.txt", "w") as fc, open(out / "colmap/images.txt", "w") as fi:
@@ -104,7 +102,7 @@ def main():
             sx, sy = W0 / W, H0 / H
             fc.write(f"{i + 1} PINHOLE {W0} {H0} {K[0, 0] * sx} {K[1, 1] * sy} {K[0, 2] * sx} {K[1, 2] * sy}\n")
             R = extr[i, :, :3] @ R_align.T
-            t = scale * extr[i, :, 3]
+            t = extr[i, :, 3]
             qw, qx, qy, qz = Rotation.from_matrix(R).as_quat()[[3, 0, 1, 2]]  # COLMAP wants w first
             fi.write(f"{i + 1} {qw} {qx} {qy} {qz} {t[0]} {t[1]} {t[2]} {i + 1} {name}\n\n")
     with open(out / "colmap/points3D.txt", "w") as f:
