@@ -14,18 +14,15 @@ uv run scripts/select_views_scannetpp.py 8 32 64 96
 uv run experiments/colmap/run.py 8 32 64 96      # outputs/colmap/<N>views/<scene>/
 ```
 
-On the cluster, 16 array tasks (4 view counts x 4 shards of the scenes), CPU only:
-
-```bash
-uv run scripts/select_views_scannetpp.py 8 32 64 96   # once, before submitting
-mkdir -p logs && sbatch experiments/colmap/run.sbatch
-```
+On the cluster, split the scenes over jobs with `--shard I/K` (every K-th scene, starting at the I-th)
+and pass the allocated CPUs, e.g. `--threads "$SLURM_CPUS_PER_TASK"`. Run `select_views_scannetpp.py`
+once before submitting, not in each job: parallel jobs would write the same files.
 
 Finished scenes are skipped, so resubmitting continues where a task stopped.
 
 CPU SIFT needs about 1 GB of RAM per thread at the 1752 x 1168 input size, and by default COLMAP uses
-every core of the machine. Pass `--threads 1` on a machine with little RAM; the sbatch passes the
-allocated CPUs. A 32-view scene takes about a minute with one thread.
+every core of the machine. Pass `--threads 1` on a machine with little RAM. A 32-view scene takes
+about one to two minutes with one thread.
 
 ## Outputs
 

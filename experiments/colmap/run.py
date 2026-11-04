@@ -51,8 +51,10 @@ def reconstruct(scene_in: Path, out: Path, threads: int = -1) -> dict:
                               reader_options=pycolmap.ImageReaderOptions(camera_model="PINHOLE"),
                               extraction_options=pycolmap.FeatureExtractionOptions(num_threads=threads))
     pycolmap.match_exhaustive(database, matching_options=pycolmap.FeatureMatchingOptions(num_threads=threads))
-    models = pycolmap.incremental_mapping(database, images, sparse,
-                                          options=pycolmap.IncrementalPipelineOptions(num_threads=threads))
+    # COLMAP drops models with fewer than 10 images by default, so 8 views could never give a model.
+    # Keep every model instead (2 images is the smallest), and report how many images it registered.
+    mapping = pycolmap.IncrementalPipelineOptions(num_threads=threads, min_model_size=2)
+    models = pycolmap.incremental_mapping(database, images, sparse, options=mapping)
     seconds = time.time() - start
 
     summary = {"views": len(frames), "models": len(models), "registered": 0, "points": 0, "seconds": seconds}
