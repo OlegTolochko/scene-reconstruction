@@ -11,9 +11,15 @@ The ScanNet++ poses are used only in step 4, to make the mesh comparable with th
 
 Writes outputs/unposed_genrecon/<N>views/<scene>/ and skips scenes that already have mesh.ply.zst.
 
+With --matched, GenRecon uses the GenRecon baseline's settings wherever Iphone mode allows (one centre
+crop per image, default chunk size, statistical outlier ratio 2.0) and effectively no radius outlier filter, whose
+fixed distance means nothing at VGGT-Omega's arbitrary scale. Results go to
+outputs/unposed_genrecon_matched/<N>views/<scene>/. Both runs share the VGGT-Omega output (vggt.npz),
+which stays in outputs/unposed_genrecon/<N>views/<scene>/.
+
 Usage:
-    uv run experiments/unposed_genrecon/run_eval.py 32
-    uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views
+    uv run experiments/unposed_genrecon/run_eval.py 32 [--matched]
+    uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views   # or unposed_genrecon_matched
 """
 
 import argparse
@@ -33,6 +39,12 @@ VGGT_PYTHON = ROOT / "papers/VGGT-Omega/.venv/bin/python"
 GENRECON = ROOT / "papers/GenRecon"
 GENRECON_PYTHON = GENRECON / ".venv/bin/python"
 CKPT = GENRECON / "checkpoints"
+
+# GenRecon settings that differ between the two runs
+SMARTPHONE = ["--chunk_size_factor", "1.08", "--stat_std_ratio", "3.0", "--radius_nb_points", "7", "--radius_m", "0.2"]
+# The radius filter is effectively off: it only drops points with no other point within 0.05 units, which
+# the dense VGGT-Omega cloud hardly has. Open3D rejects 0 neighbours, and a large radius would be very slow.
+MATCHED = ["--center_crop", "--stat_std_ratio", "2.0", "--radius_nb_points", "1", "--radius_m", "0.05"]
 
 # ScanNet++ nerfstudio world -> scan frame (same matrix as scripts/evaluate_scannetpp.py)
 NERFSTUDIO_TO_SCAN = np.array([[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=float)
@@ -70,12 +82,13 @@ def run(cmd, log, cwd=ROOT, env=None):
     subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
 
 
-def process(scene_in, out):
+def process(scene_in, out, shared, genrecon_args):
+    """shared: folder holding the VGGT-Omega input and output, the same for both runs."""
     frames = json.loads((scene_in / "dslr/nerfstudio/transforms_undistorted.json").read_text())["frames"]
-    npz, scene, recon = out / "vggt.npz", out / "scene", out / "genrecon"
+    npz, scene, recon = shared / "vggt.npz", out / "scene", out / "genrecon"
 
     # The selected views only, as an image folder for infer.py
-    images = out / "images"
+    images = shared / "images"
     images.mkdir(parents=True, exist_ok=True)
     for f in frames:
         link = images / Path(f["file_path"]).name
@@ -89,14 +102,13 @@ def process(scene_in, out):
             run([VGGT_PYTHON, HERE / "infer.py", images, "--num-images", len(frames), "--output", npz], log)
         if not (recon / "mesh.ply").exists():
             run([GENRECON_PYTHON, HERE / "convert.py", npz, "--out", scene], log)
-            # GenRecon's smartphone settings (as in run.py), geometry only (as the baseline). 999 = every image.
+            # Geometry only (as the baseline). 999 = every image.
             run([GENRECON_PYTHON, "reconstruct_scene.py", "--mode", "Iphone", "--path", scene,
                  "--colmap_subdir", "colmap", "--output_path", recon,
                  "--ss_ckpt", CKPT / "sparse_structure/ckpts/sparse_structure.pt",
                  "--shape_ckpt", CKPT / "shape_slat/ckpts/shape_slat.pt",
                  "--tex_ckpt", CKPT / "texture_slat/ckpts/texture_slat.pt",
-                 "--num_imgs_per_scene", "999", "--chunk_size_factor", "1.08",
-                 "--stat_std_ratio", "3.0", "--radius_nb_points", "7", "--radius_m", "0.2",
+                 "--num_imgs_per_scene", "999", *genrecon_args,
                  "--pipeline_config", "configs/pipelines/original.json", "--proj_batch_voxels", "1024"],
                 log, cwd=GENRECON, env=env)
 
@@ -128,17 +140,22 @@ def process(scene_in, out):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("views", type=int, nargs="+", help="numbers of input views")
+    parser.add_argument("--matched", action="store_true", help="GenRecon settings matched to the baseline")
     args = parser.parse_args()
+    out_root = ROOT / ("outputs/unposed_genrecon_matched" if args.matched else "outputs/unposed_genrecon")
+    genrecon_args = MATCHED if args.matched else SMARTPHONE
 
     for n in args.views:
         for scene_in in sorted((ROOT / f"data/scannetpp/eval_inputs/{n}views").iterdir()):
-            out = ROOT / f"outputs/unposed_genrecon/{n}views" / scene_in.name
+            out = out_root / f"{n}views" / scene_in.name
+            shared = ROOT / f"outputs/unposed_genrecon/{n}views" / scene_in.name
             if (out / "mesh.ply.zst").exists():
                 continue
             print(f"{scene_in.name}, {n} views", flush=True)
             out.mkdir(parents=True, exist_ok=True)
+            shared.mkdir(parents=True, exist_ok=True)
             try:
-                views, rmse = process(scene_in, out)
+                views, rmse = process(scene_in, out, shared, genrecon_args)
                 print(f"  done, {views} views, camera alignment error {rmse:.3f} m", flush=True)
             except Exception as e:  # one bad scene should not stop the rest
                 print(f"  failed ({e}), see {out / 'run.log'}", flush=True)

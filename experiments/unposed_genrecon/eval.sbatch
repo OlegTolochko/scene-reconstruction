@@ -11,6 +11,8 @@
 set -e
 cd ~/scene-reconstruction
 VIEWS=${VIEWS:-32}
+# MATCHED=1 sbatch ... runs GenRecon with the baseline's settings into outputs/unposed_genrecon_matched/
+if [ -n "$MATCHED" ]; then FLAG=--matched; OUT=outputs/unposed_genrecon_matched; else FLAG=; OUT=outputs/unposed_genrecon; fi
 uv run scripts/select_views_scannetpp.py "$VIEWS"
-uv run experiments/unposed_genrecon/run_eval.py "$VIEWS"
-uv run scripts/evaluate_scannetpp.py "outputs/unposed_genrecon/${VIEWS}views"
+uv run experiments/unposed_genrecon/run_eval.py "$VIEWS" $FLAG
+uv run scripts/evaluate_scannetpp.py "$OUT/${VIEWS}views"
