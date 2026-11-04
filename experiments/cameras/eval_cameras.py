@@ -16,8 +16,8 @@ Writes cameras.json into every scene folder and prints one line per scene (worst
 mean over scenes, and how the pose metrics correlate with the mesh F-score.
 
 Usage:
-    uv run experiments/unposed_genrecon/eval_cameras.py                     # 32 views
-    uv run experiments/unposed_genrecon/eval_cameras.py --views 8
+    uv run experiments/cameras/eval_cameras.py                     # 32 views
+    uv run experiments/cameras/eval_cameras.py --views 8
 """
 
 import argparse
@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import open3d as o3d
 from scipy.spatial.transform import Rotation
 from scipy.stats import spearmanr
 
@@ -36,23 +37,19 @@ NERFSTUDIO_TO_SCAN = np.array([[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, -1, 0], [0, 0,
 GL_TO_CV = np.diag([1.0, -1.0, -1.0, 1.0])
 
 
-def umeyama(src, dst):
-    """Scale s, rotation R, translation t minimising |dst - (s R src + t)|^2 over the point pairs."""
-    mu_s, mu_d = src.mean(0), dst.mean(0)
-    x, y = src - mu_s, dst - mu_d
-    U, D, Vt = np.linalg.svd(y.T @ x / len(src))
-    S = np.eye(3)
-    if np.linalg.det(U) * np.linalg.det(Vt) < 0:
-        S[2, 2] = -1
-    R = U @ S @ Vt
-    s = np.trace(np.diag(D) @ S) / (x**2).sum(1).mean()
-    return s, R, mu_d - s * R @ mu_s
+def fit_similarity(src, dst):
+    """Scale s, rotation R, translation t minimising |dst - (s R src + t)|^2 over the point pairs (Umeyama)."""
+    clouds = [o3d.geometry.PointCloud(o3d.utility.Vector3dVector(p)) for p in (src, dst)]
+    pairs = o3d.utility.Vector2iVector(np.repeat(np.arange(len(src))[:, None], 2, axis=1))
+    T = o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=True).compute_transformation(
+        *clouds, pairs)
+    s = np.cbrt(np.linalg.det(T[:3, :3]))
+    return s, T[:3, :3] / s, T[:3, 3]
 
 
 def angle_deg(R):
-    """Rotation angle of each 3x3 matrix in R (..., 3, 3), in degrees."""
-    cos = (np.trace(R, axis1=-2, axis2=-1) - 1) / 2
-    return np.degrees(np.arccos(np.clip(cos, -1, 1)))
+    """Rotation angle of each 3x3 matrix in R (N, 3, 3), in degrees."""
+    return np.degrees(Rotation.from_matrix(R).magnitude())
 
 
 def predicted_poses(images_txt):
@@ -63,7 +60,7 @@ def predicted_poses(images_txt):
         if len(parts) != 10:
             continue
         qw, qx, qy, qz, tx, ty, tz = map(float, parts[1:8])
-        R = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
+        R = Rotation.from_quat([qw, qx, qy, qz], scalar_first=True).as_matrix()
         poses[parts[9]] = (R, -R.T @ np.array([tx, ty, tz]))
     return poses
 
@@ -102,7 +99,7 @@ def evaluate(scene_out, scene_in):
     auc30 = float(np.mean([(err < t).mean() for t in range(1, 31)]))
 
     # Absolute errors after the same similarity alignment as the mesh
-    s, R, t = umeyama(C_p, C_g)
+    s, R, t = fit_similarity(C_p, C_g)
     ate = float(np.sqrt(((s * C_p @ R.T + t - C_g) ** 2).sum(1).mean()))
     # Aligned camera-to-world rotation R @ R_p^T against the true R_g^T
     rot = angle_deg(R_g @ R @ R_p.transpose(0, 2, 1))
