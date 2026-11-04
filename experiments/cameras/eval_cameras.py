@@ -25,7 +25,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
 from scipy.spatial.transform import Rotation
 from scipy.stats import spearmanr
 
@@ -39,12 +38,11 @@ GL_TO_CV = np.diag([1.0, -1.0, -1.0, 1.0])
 
 def fit_similarity(src, dst):
     """Scale s, rotation R, translation t minimising |dst - (s R src + t)|^2 over the point pairs (Umeyama)."""
-    clouds = [o3d.geometry.PointCloud(o3d.utility.Vector3dVector(p)) for p in (src, dst)]
-    pairs = o3d.utility.Vector2iVector(np.repeat(np.arange(len(src))[:, None], 2, axis=1))
-    T = o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=True).compute_transformation(
-        *clouds, pairs)
-    s = np.cbrt(np.linalg.det(T[:3, :3]))
-    return s, T[:3, :3] / s, T[:3, 3]
+    mu_s, mu_d = src.mean(0), dst.mean(0)
+    x, y = src - mu_s, dst - mu_d
+    R = Rotation.align_vectors(y, x)[0].as_matrix()  # best rotation of x onto y (Kabsch)
+    s = (y * (x @ R.T)).sum() / (x**2).sum()  # best scale for that rotation
+    return s, R, mu_d - s * R @ mu_s
 
 
 def angle_deg(R):
