@@ -15,7 +15,7 @@ The predicted mesh must be in the scan's coordinate frame (metres), as given by 
 ScanNet++ camera poses.
 
 Usage:
-    uv run scripts/evaluate_scannetpp.py PRED_DIR
+    uv run scripts/evaluate_scannetpp.py PRED_DIR [--data DATASET_ROOT]
 
 PRED_DIR has one folder per scene, named by its ID, with mesh.ply or a zstd-compressed mesh.ply.zst.
 The metrics of each scene are written next to its mesh as metrics.json (a scene that already has
@@ -27,6 +27,7 @@ import io
 import json
 import subprocess
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +36,7 @@ import trimesh
 from PIL import Image
 from scipy.spatial import cKDTree
 
-DATA = Path(__file__).resolve().parents[1] / "data/scannetpp/data"
+DATA = Path(__file__).resolve().parents[1] / "data/scannetpp"
 
 RENDER_SCALE = 0.5 # render the 1752 x 1168 test views at 876 x 584, as GenRecon does
 NUM_POINTS = 1_000_000  # points sampled on each mesh for the 3D metrics
@@ -180,8 +181,8 @@ def metrics_3d(pred: trimesh.Trimesh, scan: trimesh.Trimesh) -> dict:
     }
 
 
-def evaluate(mesh: Path) -> dict:
-    scene_dir = DATA / mesh.parent.name
+def evaluate(mesh: Path, data: Path = DATA) -> dict:
+    scene_dir = data / "data" / mesh.parent.name
     pred, scan = load_prediction(mesh), load_scan(scene_dir)
     metrics = {**metrics_2d(pred, scan, scene_dir), **metrics_3d(pred, scan)}
     return {name: float(value) for name, value in metrics.items()}
@@ -190,13 +191,14 @@ def evaluate(mesh: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("pred_dir", type=Path)
+    parser.add_argument("--data", type=Path, default=DATA, help="dataset root (default: data/scannetpp)")
     args = parser.parse_args()
 
     meshes = sorted(args.pred_dir.glob("*/mesh.ply*"))
     todo = [mesh for mesh in meshes if not (mesh.parent / "metrics.json").exists()]
     # Each scene in a new process: one process does not release all memory between scenes.
     with ProcessPoolExecutor(max_workers=1, max_tasks_per_child=1) as pool:
-        for mesh, metrics in zip(todo, pool.map(evaluate, todo)):
+        for mesh, metrics in zip(todo, pool.map(partial(evaluate, data=args.data), todo)):
             print(f"evaluated {mesh}", flush=True)
             (mesh.parent / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
 

@@ -1,7 +1,6 @@
 """Reconstruct a reference mesh through GenRecon's pretrained shape/PBR VAEs."""
 
 import argparse
-import itertools
 import json
 from pathlib import Path
 import sys
@@ -16,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "papers/GenRecon"))
 from data_toolkit_scenes.get_slats import process_instance
 from genrecon import models
 from genrecon.modules.sparse import SparseTensor
+from genrecon.pipelines.joint_decode import joint_decode_shape, joint_decode_tex
 
 HF_REPO = "microsoft/TRELLIS.2-4B"
 HF_REVISION = "af44b45f2e35a493886929c6d786e563ec68364d"
@@ -46,7 +46,25 @@ def clip(mesh, low, high):
     return mesh
 
 
-def prepare_chunks(scene, output, edge, source_to_z, textures):
+def load_run_grid(run):
+    """Keep the run's selected cubes and its original chunk-0 joint frame."""
+    transforms = json.loads((run / "chunk_transforms.json").read_text())["chunks"]
+    inputs = torch.load(run / "chunk_inputs.pt", map_location="cpu", weights_only=True)
+    if "M_chunk_to_original" in inputs:
+        raise ValueError("Use a full-scene GenRecon run, not a validation crop")
+    by_index = {c["index"]: c for c in transforms}
+    indices = [int(i) for i in inputs["chunk_indices"]]
+    if not indices or len(set(indices)) != len(indices):
+        raise ValueError("Expected nonempty, unique GenRecon chunk indices")
+    chunks = [by_index[i] for i in indices]
+    reference = np.asarray(by_index[0]["M_chunk_to_original"])
+    resolution = int(json.loads((run / "args.json").read_text())["pipeline"])
+    if resolution not in (512, 1024):
+        raise ValueError("Expected a 512 or 1024 GenRecon pipeline")
+    return chunks, reference, resolution
+
+
+def prepare_chunks(scene, output, chunks, source_to_z, textures):
     """Write normalized GLBs; record each inverse transform to source space."""
     parts = []
     for node in scene.graph.nodes_geometry:
@@ -79,21 +97,14 @@ def prepare_chunks(scene, output, edge, source_to_z, textures):
         parts.append(mesh)
     if not parts:
         raise ValueError("Input contains no triangle meshes")
-    bounds = np.array([np.min([p.bounds[0] for p in parts], axis=0),
-                       np.max([p.bounds[1] for p in parts], axis=0)])
-    counts = np.maximum(1, np.ceil((bounds[1] - bounds[0]) / edge).astype(int))
-    grid_min = bounds.mean(axis=0) - counts * edge / 2
     records = []
-    for index in itertools.product(*(range(int(n)) for n in counts)):
-        low = grid_min + np.array(index) * edge
-        center = low + edge / 2
+    for chunk in chunks:
+        chunk_to_z = np.asarray(chunk["M_chunk_to_original"])
+        edge, center = chunk_to_z[0, 0], chunk_to_z[:3, 3]
+        low = center - edge / 2
         normalized = trimesh.Scene()
         for part in parts:
             mesh = clip(part.copy(), low, low + edge)
-            # A triangle on an internal plane belongs to the lower-index cube.
-            for axis in range(3):
-                if index[axis] > 0 and len(mesh.faces):
-                    mesh.update_faces(~np.all(mesh.triangles[:, :, axis] == low[axis], axis=1))
             if not len(mesh.faces) or mesh.area <= 1e-12:
                 continue
             if textures:
@@ -107,13 +118,11 @@ def prepare_chunks(scene, output, edge, source_to_z, textures):
             mesh.apply_transform(Y_TO_Z.T)
             normalized.add_geometry(mesh)
         if not normalized.geometry:
-            continue
-        directory = output / f"chunk_{len(records):03d}"
+            raise ValueError(f"GenRecon chunk {chunk['index']} has no GT surface; check alignment")
+        directory = output / f"chunk_{chunk['index']:03d}"
         directory.mkdir()
         normalized.export(directory / "normalized.glb")
-        chunk_to_z = np.diag([edge, edge, edge, 1.])
-        chunk_to_z[:3, 3] = center
-        records.append({"id": directory.name, "grid_index": list(index),
+        records.append({**chunk, "id": directory.name,
                         "chunk_to_source": (np.linalg.inv(source_to_z) @ chunk_to_z).tolist()})
     if not records:
         raise ValueError("Input has no nonzero-area triangles")
@@ -179,93 +188,76 @@ def load_latent(path):
     return SparseTensor(features, torch.cat([torch.zeros_like(coords[:, :1]), coords], dim=1))
 
 
-def decode(chunks, args, source_to_z):
+def decode(chunks, args, joint_to_world):
+    """Use GenRecon's overlap averaging, joint decoding and hole filling."""
+    from scipy.spatial import cKDTree
     shape = load_model("shape_dec_next_dc_f16c32_fp16")
     shape.set_resolution(args.resolution)
-    texture = load_model("tex_dec_next_dc_f16c32_fp16") if args.textures else None
-    for record in chunks:
-        directory = args.output / record["id"]
-        print(f"Decoding {directory.name}", flush=True)
-        latent = load_latent(directory / "shape.npz")
-        if args.textures:
-            meshes, subdivisions = shape(latent, return_subs=True)
-        else:
-            meshes = shape(latent)
-        mesh = meshes[0]
-        raw = trimesh.Trimesh(mesh.vertices.cpu().numpy(), mesh.faces.cpu().numpy(), process=False)
-        if not len(raw.faces) or not np.isfinite(raw.vertices).all():
-            raise RuntimeError(f"Invalid decoded mesh: {directory.name}")
-        raw.export(directory / "decoded.ply")  # Raw normalized Z-up geometry.
-        if args.textures:
-            tex_latent = load_latent(directory / "texture.npz")
-            if not torch.equal(latent.coords, tex_latent.coords):
-                raise ValueError("Shape and texture latent coordinates differ")
-            voxels = texture(tex_latent, guide_subs=subdivisions) * .5 + .5
-            np.savez_compressed(directory / "texture_decoded.npz",
-                                coords=voxels.coords[:, 1:].cpu().numpy(),
-                                attrs=voxels.feats.cpu().numpy())
-            del tex_latent, voxels, subdivisions
-        del latent, mesh, meshes
-        torch.cuda.empty_cache()
-    export_reconstruction(chunks, args, source_to_z)
+    directories = [args.output / c["id"] for c in chunks]
+    rel_t = [torch.tensor(c["relative_translation"], dtype=torch.float32) for c in chunks]
+    latents = [load_latent(d / "shape.npz") for d in directories]
+    mesh, aabb, grid_size, context, _ = joint_decode_shape(shape, latents, rel_t)
+    mesh.fill_holes()
+    del shape
+    raw = trimesh.Trimesh(mesh.vertices.cpu().numpy(), mesh.faces.cpu().numpy(), process=False)
+    if not len(raw.faces) or not np.isfinite(raw.vertices).all():
+        raise RuntimeError("Joint decoding produced an empty or invalid mesh")
+    raw.export(args.output / "decoded.ply")  # Original chunk-0 frame, in chunk widths.
+    if args.textures:
+        tex_latents = [load_latent(d / "texture.npz") for d in directories]
+        if any(not torch.equal(a.coords, b.coords) for a, b in zip(latents, tex_latents)):
+            raise ValueError("Shape and texture latent coordinates differ")
+        texture = load_model("tex_dec_next_dc_f16c32_fp16")
+        voxels = joint_decode_tex(texture, tex_latents, context, rel_t)
+        coords, attrs = voxels.coords[:, 1:].cpu().numpy(), voxels.feats.cpu().numpy()
+        box, size = aabb.cpu().numpy(), grid_size.cpu().numpy()
+        np.savez_compressed(args.output / "texture_decoded.npz", coords=coords, attrs=attrs,
+                            aabb=box, grid_size=size)
+        centers = box[0] + (coords + .5) * (box[1] - box[0]) / size
+        _, nearest = cKDTree(centers).query(raw.vertices, workers=4)
+        raw.visual.vertex_colors = np.rint(attrs[nearest, :3].clip(0, 1) * 255).astype(np.uint8)
+        del texture, tex_latents, voxels
+    world = raw.copy().apply_transform(joint_to_world)
+    world.export(args.output / "mesh.ply")
+    world.apply_transform(Y_TO_Z.T).export(args.output / "reconstructed.glb")
+    del latents, context, mesh
+    torch.cuda.empty_cache()
+    if args.textures:
+        export_textures(args, joint_to_world)
 
 
-def export_reconstruction(chunks, args, source_to_z):
-    """Preserve decoded triangles and display the appearance VAE's RGB."""
-    from scipy.spatial import cKDTree
-    reconstruction = trimesh.Scene()
-    for record in chunks:
-        directory = args.output / record["id"]
-        mesh = trimesh.load(directory / "decoded.ply", force="mesh", process=False)
-        if args.textures:
-            with np.load(directory / "texture_decoded.npz") as saved:
-                centers = (saved["coords"] + .5) / args.resolution - .5
-                _, nearest = cKDTree(centers).query(mesh.vertices, workers=4)
-                rgb = saved["attrs"][nearest, :3].clip(0, 1)
-                mesh.visual.vertex_colors = np.rint(rgb * 255).astype(np.uint8)
-        chunk_to_gltf = Y_TO_Z.T @ source_to_z @ np.array(record["chunk_to_source"])
-        reconstruction.add_geometry(mesh.apply_transform(chunk_to_gltf), node_name=directory.name)
-    reconstruction.export(args.output / "reconstructed.glb")
-
-
-def export_textures(chunks, args, source_to_z):
-    """Use the upstream exporter for a preview, after saving raw geometry."""
+def export_textures(args, joint_to_world):
+    """Bake one scene-wide PBR preview using the joint lattice."""
     from o_voxel.postprocess import to_glb
-    preview = trimesh.Scene()
-    for record in chunks:
-        directory = args.output / record["id"]
-        print(f"Exporting textured preview {directory.name}", flush=True)
-        mesh = trimesh.load(directory / "decoded.ply", force="mesh", process=False)
-        with np.load(directory / "texture_decoded.npz") as saved:
-            textured = to_glb(
-                vertices=torch.tensor(mesh.vertices, dtype=torch.float32, device="cuda"),
-                faces=torch.tensor(mesh.faces, dtype=torch.int32, device="cuda"),
-                attr_volume=torch.from_numpy(saved["attrs"].copy()).cuda(),
-                coords=torch.from_numpy(saved["coords"].copy()).cuda(),
-                attr_layout=PBR_LAYOUT, aabb=[[-.5] * 3, [.5] * 3], grid_size=args.resolution,
-                decimation_target=250000, texture_size=args.texture_size, remesh=False)
-        # to_glb has already converted local Z-up coordinates to Y-up.
-        chunk_to_gltf = Y_TO_Z.T @ source_to_z @ np.array(record["chunk_to_source"])
-        textured.apply_transform(chunk_to_gltf @ Y_TO_Z)
-        preview.add_geometry(textured, node_name=directory.name)
-        torch.cuda.empty_cache()
-    preview.export(args.output / "textured_preview.glb")
+    mesh = trimesh.load(args.output / "decoded.ply", force="mesh", process=False)
+    with np.load(args.output / "texture_decoded.npz") as saved:
+        textured = to_glb(
+            vertices=torch.tensor(mesh.vertices, dtype=torch.float32, device="cuda"),
+            faces=torch.tensor(mesh.faces, dtype=torch.int32, device="cuda"),
+            attr_volume=torch.from_numpy(saved["attrs"].copy()).cuda(),
+            coords=torch.from_numpy(saved["coords"].copy()).cuda(),
+            attr_layout=PBR_LAYOUT, aabb=saved["aabb"].copy(), grid_size=saved["grid_size"].copy(),
+            decimation_target=250000, texture_size=args.texture_size, remesh=False)
+    # to_glb has already converted joint Z-up coordinates to Y-up.
+    textured.apply_transform(Y_TO_Z.T @ joint_to_world @ Y_TO_Z)
+    textured.export(args.output / "textured_preview.glb")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True, help="Reference mesh or scene")
     parser.add_argument("--output", type=Path, required=True, help="Empty output directory")
-    parser.add_argument("--chunk-size", type=float, required=True, help="Cube edge in source dataset units")
-    parser.add_argument("--resolution", type=int, choices=(512, 1024), default=512)
+    parser.add_argument("--genrecon-run", type=Path, required=True, help="GenRecon output for this scene and camera set")
     parser.add_argument("--up-axis", choices=("y", "z"), help="Default: Y for GLB/glTF, Z otherwise")
     parser.add_argument("--textures", action="store_true", help="Also reconstruct PBR appearance or vertex RGB")
     parser.add_argument("--texture-size", type=int, default=2048)
     args = parser.parse_args()
     if not args.input.is_file():
         parser.error(f"Input mesh not found: {args.input.resolve()}. Download it or correct --input.")
-    if not np.isfinite(args.chunk_size) or args.chunk_size <= 0:
-        parser.error("--chunk-size must be finite and positive")
+    try:
+        kept, joint_to_world, args.resolution = load_run_grid(args.genrecon_run)
+    except (OSError, KeyError, ValueError) as exc:
+        parser.error(f"Invalid GenRecon run: {exc}")
     if args.texture_size <= 0:
         parser.error("--texture-size must be positive")
     if args.output.exists() and any(args.output.iterdir()):
@@ -283,19 +275,21 @@ def main():
     up_axis = args.up_axis or ("y" if args.input.suffix.lower() in (".glb", ".gltf") else "z")
     source_to_z = Y_TO_Z if up_axis == "y" else np.eye(4)
     args.output.mkdir(parents=True, exist_ok=True)
-    chunks = prepare_chunks(scene, args.output, args.chunk_size, source_to_z, args.textures and not vertex_rgb)
+    chunks = prepare_chunks(scene, args.output, kept, source_to_z, args.textures and not vertex_rgb)
     (args.output / "run.json").write_text(json.dumps({
         "input": str(args.input.resolve()), "source_up_axis": up_axis,
         "checkpoint_repository": HF_REPO, "checkpoint_revision": HF_REVISION,
-        "chunk_size": args.chunk_size, "resolution": args.resolution,
+        "genrecon_run": str(args.genrecon_run.resolve()),
+        "chunk_size": float(joint_to_world[0, 0]), "resolution": args.resolution,
+        "joint_to_world": joint_to_world.tolist(),
         "textures": args.textures, "texture_size": args.texture_size,
         "appearance_source": "vertex_rgb" if vertex_rgb else "pbr_materials" if args.textures else None,
         "vertex_rgb_input_defaults": {"metallic": 0, "roughness": 1, "alpha": 1} if vertex_rgb else None,
         "vertex_rgb_sampling": "closest-surface barycentric RGB at quantized shape dual vertices" if vertex_rgb else None,
         "output_rgb": "nearest decoded appearance voxel at each mesh vertex" if args.textures else None,
         "posterior": "mean", "latent_normalization": False,
-        "output_frame": "GLB is Y-up; decoded.ply is normalized chunk Z-up",
-        "chunking": "independent nonoverlapping cubes; open triangle clipping",
+        "output_frame": "mesh.ply is world Z-up; GLB is world Y-up; decoded.ply is joint chunk-0",
+        "chunking": "GenRecon selected cubes; open triangle clipping; joint decode and fill_holes",
         "textured_preview": "upstream cleanup and simplification; use reconstructed.glb for raw geometry",
         "chunks": chunks,
     }, indent=2) + "\n")
@@ -303,10 +297,8 @@ def main():
     with torch.no_grad():
         encode(chunks, args, rgb_source)
         torch.cuda.empty_cache()
-        decode(chunks, args, source_to_z)
+        decode(chunks, args, joint_to_world)
         torch.cuda.empty_cache()
-        if args.textures:
-            export_textures(chunks, args, source_to_z)
     print(f"Saved {args.output / 'reconstructed.glb'}")
 
 
