@@ -1,5 +1,5 @@
 # ScanNet++ evaluation scenes: the 50 nvs_sem_val scenes with DSLR, laser-scan mesh and iPhone data,
-# about 57 GB. Run from the repo root; the token is read from .env:
+# about 42 GB on disk. Run from the repo root; the token is read from .env:
 #   uv run python scripts/download_scannetpp.py scripts/download_scannetpp_eval.yml
 
 data_root: data/scannetpp
@@ -13,14 +13,13 @@ download_splits: [nvs_sem_val]
 meta_files: [splits/nvs_sem_val.txt]
 
 download_assets: [
-  # DSLR: undistorted 1752 x 1168 images and masks, poses, COLMAP model, train/test lists
+  # DSLR: undistorted 1752 x 1168 images and masks, poses (incl. the test views), COLMAP model
   dslr_resized_undistorted_dir, dslr_resized_undistorted_mask_dir,
-  dslr_nerfstudio_transform_undistorted_path, dslr_colmap_dir, dslr_train_test_lists_path,
-  # laser scan: mesh, anonymized vertices, scanner poses
-  scan_mesh_path, scan_mesh_mask_path, scan_transformed_poses_path,
-  # iPhone: video, mask video, depth, ARKit poses, COLMAP model, nerfstudio poses, EXIF
-  iphone_video_path, iphone_video_mask_path, iphone_depth_path, iphone_pose_intrinsic_imu_path,
-  iphone_colmap_dir, iphone_nerfstudio_transform_path, iphone_exif_path,
+  dslr_nerfstudio_transform_undistorted_path, dslr_colmap_dir,
+  # laser scan: mesh, anonymized vertices
+  scan_mesh_path, scan_mesh_mask_path,
+  # iPhone, for GenRecon's --mode Scannet_iphone: video, COLMAP model (poses, intrinsics, points)
+  iphone_video_path, iphone_colmap_dir,
 ]
 
 # assets stored as .zip on the server (unzipped after download)
@@ -28,7 +27,6 @@ zipped_assets: [
   dslr_resized_undistorted_dir, dslr_resized_undistorted_mask_dir,
   dslr_nerfstudio_transform_undistorted_path, dslr_colmap_dir,
   scan_mesh_path,
-  iphone_video_mask_path, iphone_depth_path, iphone_pose_intrinsic_imu_path,
-  iphone_colmap_dir, iphone_nerfstudio_transform_path, iphone_exif_path,
+  iphone_colmap_dir,
 ]
 exclude_assets: {}
