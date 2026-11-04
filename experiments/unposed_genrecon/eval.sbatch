@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=06:00:00
-#SBAķCH --output=/rhome/%u/scene-reconstruction/logs/unposed_eval_%j.out
+#SBATCH --output=/rhome/%u/scene-reconstruction/logs/unposed_eval_%j.out
 
 set -e
 cd ~/scene-reconstruction
