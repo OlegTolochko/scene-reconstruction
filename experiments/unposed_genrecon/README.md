@@ -70,23 +70,17 @@ Open the `.ply` in MeshLab, Blender, CloudCompare or https://3dviewer.net.
 
 ## ScanNet++ evaluation
 
-Runs the whole pipeline on the 50 evaluation scenes with the same N DSLR views as
-`experiments/genrecon_baseline`, without their poses. Each mesh is then moved into the scan's
-frame with the rotation, translation and scale that best map the predicted camera centres onto
-the ScanNet++ ones, so `scripts/evaluate_scannetpp.py` can score it. The ScanNet++ poses are used
-only for this alignment.
+
+### Cluster:
 
 ```bash
-mkdir -p logs && sbatch experiments/unposed_genrecon/eval.sbatch   # VIEWS=8 sbatch ... for 8 views
+mkdir -p logs && sbatch experiments/unposed_genrecon/eval.sbatch
 ```
 
-Or step by step:
+### Local:
 
 ```bash
 uv run scripts/select_views_scannetpp.py 32
 uv run experiments/unposed_genrecon/run_eval.py 32   # outputs/unposed_genrecon/32views/<scene>/
 uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views
 ```
-
-Each scene folder keeps `mesh.ply.zst` (aligned), `align.json` (the transform and the camera
-alignment error in metres), `vggt.npz`, `run.log` and GenRecon's small outputs.
