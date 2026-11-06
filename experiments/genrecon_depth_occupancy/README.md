@@ -6,7 +6,7 @@ and stage 1. `cells.py` then replaces stage 1's cells with
 - the surface cells of the depth: cells that hold depth points from enough views
 - stage 1's cells outside every input image, so generation stays in place there.
 
-All other stage 1 cells are deleted, including cells hidden behind a surface inside an image. Three sources:
+All other stage 1 cells are deleted, including cells hidden behind a surface inside an image. The sources:
 
 - `scan`: depth rendered from the ground truth scan at the true cameras, with one view per surface cell.
 - `colmap`: VGGT-Omega's depth (`experiments/vggt_omega_depth`) with one scale per view, the median of
@@ -15,9 +15,13 @@ All other stage 1 cells are deleted, including cells hidden behind a surface ins
   views would not have it.
 - `depth_only`: the same depth as `colmap` with one view per surface cell and no stage 1 cells, so the grid comes
   from depth alone. Stage 1 still runs, so the random state stays the same.
+- `colmap_solv3r` and `depth_only_solv3r`: the same as `colmap` and `depth_only` with Solv3R's depth
+  (`experiments/solv3r_depth`) instead of VGGT-Omega's. Solv3R's depth is 504×336 instead of 624×416, so each
+  source projects at its own depth's resolution.
 
 Requires the baseline runs, the scan cells from the oracle experiment's `occupancy.py`, the GenRecon env, and for
-`colmap` the output of `experiments/vggt_omega_depth/infer.py`.
+`colmap` the output of `experiments/vggt_omega_depth/infer.py` (for the `_solv3r` sources,
+`experiments/solv3r_depth/infer.py`).
 
 ```bash
 uv run experiments/genrecon_depth_occupancy/cells.py scan 32  # outputs/genrecon_depth_occupancy/scan/cells/<N>views/<scene>.npz
@@ -26,4 +30,4 @@ uv run scripts/evaluate_scannetpp.py outputs/genrecon_depth_occupancy/scan/32vie
 uv run experiments/genrecon_oracle_occupancy/fscores.py outputs/genrecon_depth_occupancy/scan/32views  # F@2/5/10cm
 ```
 
-The same commands with `colmap` or `depth_only` run the other sources.
+The same commands with `colmap`, `depth_only`, `colmap_solv3r` or `depth_only_solv3r` run the other sources.
