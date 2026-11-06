@@ -5,7 +5,7 @@ Writes outputs/genrecon_depth_occupancy/<source>/<N>views/<scene>/mesh.ply.zst a
 have one.
 
 Usage:
-    uv run experiments/genrecon_depth_occupancy/run.py {scan,colmap,depth_only} 32
+    uv run experiments/genrecon_depth_occupancy/run.py {scan,colmap,depth_only,colmap_solv3r,depth_only_solv3r} 32
 """
 
 import argparse
@@ -21,7 +21,7 @@ OUT = ROOT / "outputs/genrecon_depth_occupancy"
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("source", choices=["scan", "colmap", "depth_only"])
+    parser.add_argument("source", choices=["scan", "colmap", "depth_only", "colmap_solv3r", "depth_only_solv3r"])
     parser.add_argument("views", type=int, nargs="+", help="numbers of input views")
     parser.add_argument("--scenes", nargs="*", help="default: every scene with cells from cells.py")
     args = parser.parse_args()
