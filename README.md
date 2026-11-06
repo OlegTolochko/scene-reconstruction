@@ -52,5 +52,6 @@ uv run scripts/evaluate_scannetpp.py <pred_dir>
 | -------- | --------------- | -------- |
 | GenRecon | papers/GenRecon | https://github.com/kasothaphie/GenRecon |
 | VGGT-Omega | papers/VGGT-Omega | https://github.com/facebookresearch/vggt-omega |
+| Solv3R | papers/Solv3R | https://github.com/ubc-vision/solv3r |
 
 See `papers/README.md` for imported commits and licenses.

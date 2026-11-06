@@ -1,0 +1,19 @@
+defaults:
+  - base
+  - test_datasets:
+    - dtu
+    - eth3d
+    - sevenscenes
+    - scannetpp
+    - nuscenes
+  - _self_
+
+test_config:
+  normalize_scene: false
+  load_data_fields:
+    - images
+    - extrinsics_c2w
+    - intrinsics
+    - depths
+    - world_points
+    - point_masks

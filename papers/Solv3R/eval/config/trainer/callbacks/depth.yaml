@@ -1,0 +1,3 @@
+# Depth evaluation callback
+depth:
+  _target_: dvlt.callbacks.evaluators.depth.DepthEvaluator

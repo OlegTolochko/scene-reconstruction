@@ -1,0 +1,7 @@
+eth3d:
+  _target_: dvlt.data.datasets.parser.dataverse.DataverseEvalDataset
+  max_frames: 100
+  dataverse_cfg:
+    target: "eth3d.ETH3D"
+    params:
+      root_path: "${user.data_root}/test/eth3d"
