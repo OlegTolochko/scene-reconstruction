@@ -1,0 +1,7 @@
+dtu:
+  _target_: dvlt.data.datasets.parser.dataverse.DataverseEvalDataset
+  view_ranking: "middle_first"
+  dataverse_cfg:
+    target: "dtu.DTU"
+    params:
+      root_path: "${user.data_root}/test/dtu"
