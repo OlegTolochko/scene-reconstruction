@@ -1,10 +1,7 @@
 import argparse
-import glob
-import os
 import tempfile
 from pathlib import Path
 
-import cv2
 import numpy as np
 import torch
 
@@ -12,10 +9,11 @@ from vggt_omega.models import VGGTOmega
 from vggt_omega.utils.load_fn import load_and_preprocess_images
 from vggt_omega.utils.pose_enc import encoding_to_camera
 
+from inputs import scene_name, select_images
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT = REPO_ROOT / "papers/VGGT-Omega/checkpoints/VGGT-Omega-1B-512/model.pt"
 OUTPUT_DIR = REPO_ROOT / "outputs/unposed_genrecon"  # predictions saved as <input name>.npz
-IMAGE_EXTS = (".png", ".jpg", ".jpeg")
 
 
 def get_device() -> str:
@@ -24,31 +22,6 @@ def get_device() -> str:
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
-
-
-def extract_frames(video_path: str, num_frames: int, out_dir: str) -> list[str]:
-    """Save num_frames evenly spaced frames from the video and return their paths."""
-    cap = cv2.VideoCapture(video_path)
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    paths = []
-    for i, index in enumerate(np.linspace(0, total - 1, num_frames).astype(int)):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, index)
-        ok, frame = cap.read()
-        if not ok:
-            continue
-        path = os.path.join(out_dir, f"{i:04d}.png")
-        cv2.imwrite(path, frame)
-        paths.append(path)
-    cap.release()
-    return paths
-
-
-def pick_evenly(paths: list[str], num_images: int) -> list[str]:
-    """Keep num_images evenly spaced paths (all of them if there are fewer), like GenRecon does."""
-    if len(paths) <= num_images:
-        return paths
-    indices = np.linspace(0, len(paths) - 1, num_images).round().astype(int)
-    return [paths[i] for i in indices]
 
 
 def main() -> None:
@@ -62,13 +35,7 @@ def main() -> None:
     print(f"Device: {device}")
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        if os.path.isdir(args.input):
-            all_names = sorted(p for p in glob.glob(os.path.join(args.input, "*")) if p.lower().endswith(IMAGE_EXTS))
-            image_names = pick_evenly(all_names, args.num_images)
-        else:
-            image_names = extract_frames(args.input, args.num_images, tmp_dir)
-        if not image_names:
-            raise SystemExit(f"No images found in {args.input}")
+        image_names = select_images(args.input, args.num_images, tmp_dir)
         print(f"Images: {len(image_names)}")
 
         model = VGGTOmega().eval()
@@ -96,9 +63,7 @@ def main() -> None:
     def to_np(t: torch.Tensor) -> np.ndarray:
         return t[0].detach().float().cpu().numpy()  # drop the batch dimension
 
-    src = Path(args.input).resolve()
-    name = src.parents[1].name if src.parent.name in ("iphone", "dslr") else src.stem # ScanNet++: scene ID
-    output = args.output or OUTPUT_DIR / f"{name}.npz"
+    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}.npz"
     output.parent.mkdir(parents=True, exist_ok=True)
     
     np.savez(

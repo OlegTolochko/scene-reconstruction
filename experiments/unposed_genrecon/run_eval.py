@@ -1,7 +1,7 @@
-"""Run VGGT-Omega + GenRecon on the ScanNet++ evaluation inputs written by scripts/select_views_scannetpp.py.
+"""Run VGGT-Omega (or Solv3R) + GenRecon on the ScanNet++ evaluation inputs written by scripts/select_views_scannetpp.py.
 
 For each scene, using the same N DSLR views as the GenRecon baseline but none of their poses:
-    1. VGGT-Omega predicts cameras and depth       -> vggt.npz
+    1. VGGT-Omega predicts cameras and depth       -> vggt.npz (Solv3R: solv3r.npz)
     2. convert.py writes them as a COLMAP scene     -> scene/
     3. GenRecon (Iphone mode) generates the mesh    -> genrecon/
     4. The mesh is moved into the scan's frame with the similarity transform (rotation, translation,
@@ -17,8 +17,11 @@ fixed distance means nothing at VGGT-Omega's arbitrary scale. Results go to
 outputs/unposed_genrecon_matched/<N>views/<scene>/. Both runs share the VGGT-Omega output (vggt.npz),
 which stays in outputs/unposed_genrecon/<N>views/<scene>/.
 
+With --model solv3r, Solv3R replaces VGGT-Omega and the results go to outputs/unposed_genrecon_solv3r[_matched]/.
+Its output (solv3r.npz) is kept next to vggt.npz.
+
 Usage:
-    uv run experiments/unposed_genrecon/run_eval.py 32 [--matched]
+    uv run experiments/unposed_genrecon/run_eval.py 32 [--matched] [--model solv3r]
     uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views   # or unposed_genrecon_matched
 """
 
@@ -35,7 +38,10 @@ from scipy.spatial.transform import Rotation
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-VGGT_PYTHON = ROOT / "papers/VGGT-Omega/.venv/bin/python"
+MODELS = {  # Python env, script and output file of the model that estimates the cameras and depth
+    "vggt_omega": (ROOT / "papers/VGGT-Omega/.venv/bin/python", HERE / "infer.py", "vggt.npz"),
+    "solv3r": (ROOT / "papers/Solv3R/.venv/bin/python", HERE / "infer_solv3r.py", "solv3r.npz"),
+}
 GENRECON = ROOT / "papers/GenRecon"
 GENRECON_PYTHON = GENRECON / ".venv/bin/python"
 CKPT = GENRECON / "checkpoints"
@@ -82,12 +88,13 @@ def run(cmd, log, cwd=ROOT, env=None):
     subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
 
 
-def process(scene_in, out, shared, genrecon_args):
-    """shared: folder holding the VGGT-Omega input and output, the same for both runs."""
+def process(scene_in, out, shared, genrecon_args, model):
+    """shared: folder holding the model's input and output, the same for both runs."""
     frames = json.loads((scene_in / "dslr/nerfstudio/transforms_undistorted.json").read_text())["frames"]
-    npz, scene, recon = shared / "vggt.npz", out / "scene", out / "genrecon"
+    python, infer, npz_name = MODELS[model]
+    npz, scene, recon = shared / npz_name, out / "scene", out / "genrecon"
 
-    # The selected views only, as an image folder for infer.py
+    # The selected views only, as an image folder for the model
     images = shared / "images"
     images.mkdir(parents=True, exist_ok=True)
     for f in frames:
@@ -99,7 +106,7 @@ def process(scene_in, out, shared, genrecon_args):
            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
     with open(out / "run.log", "a") as log:
         if not npz.exists():
-            run([VGGT_PYTHON, HERE / "infer.py", images, "--num-images", len(frames), "--output", npz], log)
+            run([python, infer, images, "--num-images", len(frames), "--output", npz], log)
         if not (recon / "mesh.ply").exists():
             run([GENRECON_PYTHON, HERE / "convert.py", npz, "--out", scene], log)
             # Geometry only (as the baseline). 999 = every image.
@@ -141,8 +148,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("views", type=int, nargs="+", help="numbers of input views")
     parser.add_argument("--matched", action="store_true", help="GenRecon settings matched to the baseline")
+    parser.add_argument("--model", choices=MODELS, default="vggt_omega", help="model that estimates the cameras and depth")
     args = parser.parse_args()
-    out_root = ROOT / ("outputs/unposed_genrecon_matched" if args.matched else "outputs/unposed_genrecon")
+    out_root = ROOT / ("outputs/unposed_genrecon" + ("_solv3r" if args.model == "solv3r" else "")
+                       + ("_matched" if args.matched else ""))
     genrecon_args = MATCHED if args.matched else SMARTPHONE
 
     for n in args.views:
@@ -155,7 +164,7 @@ def main():
             out.mkdir(parents=True, exist_ok=True)
             shared.mkdir(parents=True, exist_ok=True)
             try:
-                views, rmse = process(scene_in, out, shared, genrecon_args)
+                views, rmse = process(scene_in, out, shared, genrecon_args, args.model)
                 print(f"  done, {views} views, camera alignment error {rmse:.3f} m", flush=True)
             except Exception as e:  # one bad scene should not stop the rest
                 print(f"  failed ({e}), see {out / 'run.log'}", flush=True)
