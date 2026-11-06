@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solv3r"
+version = "0.1.0"
+description = "Solv3R: 3D Looped Transformer as a Multi-view Solver"
+readme = "README.md"
+requires-python = ">= 3.11, < 3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+    "torch>=2.5",
+    "huggingface_hub",
+    "safetensors",
+    "numpy",
+    "onnxruntime",
+    "opencv-python",
+    "pillow",
+    "scipy",
+]
+
+[project.optional-dependencies]
+eval = ["dvlt @ git+https://github.com/nv-tlabs/dvlt@f59bb18259ab446a7585c4f47731a77cfdefa426"]
+
+[project.urls]
+Homepage = "https://ubc-vision.github.io/solv3r/"
+Repository = "https://github.com/ubc-vision/solv3r"
+
+[tool.setuptools]
+packages = ["solv3r", "solv3r.network"]
