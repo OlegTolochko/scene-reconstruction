@@ -82,8 +82,9 @@ def run(cmd, log, cwd=ROOT, env=None):
     subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
 
 
-def process(scene_in, out, shared, genrecon_args):
-    """shared: folder holding the VGGT-Omega input and output, the same for both runs."""
+def process(scene_in, out, shared, genrecon_args, script=("reconstruct_scene.py",)):
+    """shared: folder holding the VGGT-Omega input and output, the same for both runs.
+    script: GenRecon's entry point and its leading arguments, run from papers/GenRecon."""
     frames = json.loads((scene_in / "dslr/nerfstudio/transforms_undistorted.json").read_text())["frames"]
     npz, scene, recon = shared / "vggt.npz", out / "scene", out / "genrecon"
 
@@ -103,7 +104,7 @@ def process(scene_in, out, shared, genrecon_args):
         if not (recon / "mesh.ply").exists():
             run([GENRECON_PYTHON, HERE / "convert.py", npz, "--out", scene], log)
             # Geometry only (as the baseline). 999 = every image.
-            run([GENRECON_PYTHON, "reconstruct_scene.py", "--mode", "Iphone", "--path", scene,
+            run([GENRECON_PYTHON, *script, "--mode", "Iphone", "--path", scene,
                  "--colmap_subdir", "colmap", "--output_path", recon,
                  "--ss_ckpt", CKPT / "sparse_structure/ckpts/sparse_structure.pt",
                  "--shape_ckpt", CKPT / "shape_slat/ckpts/shape_slat.pt",
