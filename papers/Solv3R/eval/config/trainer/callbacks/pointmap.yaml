@@ -1,0 +1,15 @@
+# Pointmap evaluation callback
+# By default only L2 metrics. Set compute_recon_metrics=true for acc/comp/F1.
+pointmap:
+  _target_: dvlt.callbacks.evaluators.pointmap.PointmapEvaluator
+  compute_recon_metrics: false
+  voxel_downsample: true
+  icp_threshold: 0.1  # 0 to disable
+  dataset_icp_thresholds:
+    dtu: 100
+  dataset_f1_thresholds:
+    eth3d: 0.25
+    dtu: 0.001
+  dataset_voxel_sizes:
+    scannetpp: 0.02
+    dtu: 0.001

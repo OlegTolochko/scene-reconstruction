@@ -1,0 +1,12 @@
+sevenscenes:
+  _target_: dvlt.data.datasets.parser.dataverse.DataverseEvalDataset
+  view_ranking: "index"
+  view_sampling: "every_11"
+  dataverse_cfg:
+    target: "sevenscenes.SevenScenes"
+    params:
+      data_root: "${user.data_root}/test/sevenscenes"
+      split: "test"
+      depth_source: "proj"
+      max_depth: 10.0 # we follow pi3 https://github.com/yyfz/Pi3/blob/evaluation/datasets/sevenscenes.py#L161
+      min_depth: 0.1

@@ -205,6 +205,8 @@ cython_debug/
 data/
 # VGGT-Omega keeps its dataloader source code in training/data/.
 !papers/VGGT-Omega/training/data/
+# Solv3R keeps its benchmark dataset configs in eval/config/data/.
+!papers/Solv3R/eval/config/data/
 **/checkpoints/
 # Marimo
 marimo/_static/
