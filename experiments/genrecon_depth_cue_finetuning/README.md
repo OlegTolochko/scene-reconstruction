@@ -74,6 +74,43 @@ extra data and steps.
 3. Dataset loading the cues, training for the sparse-structure stage, the control with the same settings.
 4. ScanNet++ dev set, then the shape stage if the sparse-structure stage helps.
 
+## Variant A: per-view cues into both MLPs
+
+Implemented for the sparse-structure stage. GenRecon is not modified: `train.py` registers a dataset and a
+trainer with GenRecon's registries, wraps `build_single_model`, and then runs `papers/GenRecon/train.py`
+unchanged.
+
+- Cues per (view, voxel), 0 where the depth is unknown: `clip(Δ/voxel, ±8)`, `clip(Δ/D, ±0.5)`, the
+  confidence standardised with `conf_mean`/`conf_std` (trainer args, to be set from the SAGE renders), and a
+  `known` flag (`cues.py`).
+- Two `Linear(4, 1024)` without bias, zero-initialised, add to the first-layer pre-activations of
+  `feature_mlp` and `weight_mlp` through forward pre-hooks. GenRecon's parameters and checkpoint keys are
+  untouched, and at initialisation the aggregator is bit-identical to GenRecon's (`test_cues.py`, fp32 and bf16).
+- Trained: the aggregator only (`cues.train` in `config_ss.json`), starting from the released checkpoint
+  (`cues.init_ckpt`). `--control` sets all cues to 0, so the cue layers stay at 0: same data, steps and cameras.
+- `cue_cameras: true` replaces the true cameras by the cue's (with GenRecon's crop applied), as at test time.
+
+Cue data per room, in `<depth_cues>/<scene_id>/`:
+
+| File | Contents |
+| --- | --- |
+| `cameras.npz` | `K [F, 3, 3]` normalised to the full render; `c2w [F, 4, 4]` camera-to-room, Blender convention as in `transforms.json`, aligned to the true cameras; F = the frames of `transforms.json` in its order |
+| `<i:04d>.npz` | `depth [H, W]` z-depth in room units, `conf [H, W]`, for frame `i`, covering the full render (any resolution) |
+
+For the oracle, the same format with the Z pass, the true cameras and `conf = 1`.
+
+```bash
+# from papers/GenRecon, GenRecon env
+python ../../experiments/genrecon_depth_cue_finetuning/train.py \
+    --config ../../experiments/genrecon_depth_cue_finetuning/config_ss.json --output_dir OUT \
+    --data_dir '{"sage": {"base": BASE, "ss_latent": LATENTS, "depth_cues": CUES}}' [--val_data_dir ...] [--control]
+
+uv run --with torch python -m unittest discover -s experiments/genrecon_depth_cue_finetuning -p "test_*.py" -v
+```
+
+Not yet: inference with the finetuned aggregator (an `inject.py` that computes the cues inside
+`project_features_on_points`, as in `genrecon_occlusion_weighting`), and the diagnostics.
+
 ## Open questions
 
 - How many rooms? About 500–1000 should be enough for an aggregator-only finetune.
