@@ -225,6 +225,7 @@ runs/
 # Shell scripts are kept out of the repository, except in vendored paper code under papers/.
 *.sh
 !papers/**/*.sh
+*.sbatch
 
 # Local-only tools, not part of the repository.
 local/
