@@ -7,7 +7,10 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 OUTPUT_DIR = ROOT / "outputs/unposed_genrecon"
 
-VGGT_PYTHON = ROOT / "papers/VGGT-Omega/.venv/bin/python"
+MODELS = {  # Python env and script that estimate the cameras and depth
+    "vggt_omega": (ROOT / "papers/VGGT-Omega/.venv/bin/python", HERE / "infer.py"),
+    "solv3r": (ROOT / "papers/Solv3R/.venv/bin/python", HERE / "infer_solv3r.py"),
+}
 GENRECON = ROOT / "papers/GenRecon"
 GENRECON_PYTHON = GENRECON / ".venv/bin/python"
 CKPT = GENRECON / "checkpoints"
@@ -22,16 +25,19 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("input", help="Image folder or video file.")
     p.add_argument("--num-images", type=int, default=32, help="Evenly spaced images (or video frames) to use.")
+    p.add_argument("--model", choices=MODELS, default="vggt_omega", help="Model that estimates the cameras and depth.")
     args = p.parse_args()
     
     src = Path(args.input).resolve()
     name = src.parents[1].name if src.parent.name in ("iphone", "dslr") else src.stem # ScanNet++: scene ID
+    name += "_solv3r" if args.model == "solv3r" else ""
     npz, scene, recon = OUTPUT_DIR / f"{name}.npz", OUTPUT_DIR / "scene", OUTPUT_DIR / f"{name}_genrecon"
 
     env = {**os.environ, "ATTN_BACKEND": "flash_attn", "SPARSE_ATTN_BACKEND": "flash_attn"}
 
     if not npz.exists():
-        run([VGGT_PYTHON, HERE / "infer.py", Path(args.input).resolve(), "--num-images", args.num_images])
+        python, infer = MODELS[args.model]
+        run([python, infer, Path(args.input).resolve(), "--num-images", args.num_images, "--output", npz])
 
     # Always rerun: scene/ is shared between inputs, so an existing one may belong to another scene
     run([GENRECON_PYTHON, HERE / "convert.py", npz])

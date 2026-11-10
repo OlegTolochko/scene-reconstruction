@@ -1,0 +1,3 @@
+# Intrinsics evaluation callback
+intrinsics:
+  _target_: dvlt.callbacks.evaluators.pose.IntrinsicsEvaluator
