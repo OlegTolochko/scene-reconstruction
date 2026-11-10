@@ -15,4 +15,5 @@ dependencies = [
     "pillow",
     "scipy",
     "trimesh",
+    "pycolmap>=4.2.1",
 ]
