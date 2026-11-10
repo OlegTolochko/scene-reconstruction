@@ -10,6 +10,7 @@ nerfstudio/transforms_undistorted.json, which lists only the selected frames.
 
 Usage:
     uv run scripts/select_views_scannetpp.py 32
+    uv run scripts/select_views_scannetpp.py 32 --data data/3dfront  # same layout, see README.md
 """
 
 import argparse
@@ -38,15 +39,17 @@ def select_views(frames: list[dict], n: int) -> set[str]:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("views", type=int, nargs="+", help="numbers of input views")
+    parser.add_argument("--data", type=Path, default=SCANNETPP, help="dataset root (default: data/scannetpp)")
     args = parser.parse_args()
+    args.data = args.data.resolve()  # the symlinks below need absolute targets
 
-    for scene in (SCANNETPP / "splits/nvs_sem_val.txt").read_text().split():
-        src = SCANNETPP / "data" / scene / "dslr"
+    for scene in (args.data / "splits/nvs_sem_val.txt").read_text().split():
+        src = args.data / "data" / scene / "dslr"
         transforms = json.loads((src / "nerfstudio/transforms_undistorted.json").read_text())
         good = sorted((f for f in transforms["frames"] if not f["is_bad"]), key=lambda f: f["file_path"])
 
         for n in args.views:
-            dslr = SCANNETPP / "eval_inputs" / f"{n}views" / scene / "dslr"
+            dslr = args.data / "eval_inputs" / f"{n}views" / scene / "dslr"
             (dslr / "nerfstudio").mkdir(parents=True, exist_ok=True)
             for entry in src.iterdir():
                 if entry.name != "nerfstudio" and not (dslr / entry.name).exists():

@@ -5,6 +5,7 @@ skips scenes that already have one.
 
 Usage:
     uv run experiments/genrecon_baseline/run.py 32
+    uv run experiments/genrecon_baseline/run.py 32 --data data/3dfront --output outputs/genrecon_baseline/3dfront
 """
 
 import argparse
@@ -19,11 +20,16 @@ GENRECON = ROOT / "papers/GenRecon"
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("views", type=int, nargs="+", help="numbers of input views")
+    parser.add_argument("--data", type=Path, default=ROOT / "data/scannetpp", help="dataset root (default: data/scannetpp)")
+    parser.add_argument("--output", type=Path, default=ROOT / "outputs/genrecon_baseline",
+                        help="output root (default: outputs/genrecon_baseline)")
     args = parser.parse_args()
+    # GenRecon runs in its own directory, so its paths must be absolute.
+    data, output = args.data.resolve(), args.output.resolve()
 
     for n in args.views:
-        for scene in sorted((ROOT / f"data/scannetpp/eval_inputs/{n}views").iterdir()):
-            out = ROOT / f"outputs/genrecon_baseline/{n}views" / scene.name
+        for scene in sorted((data / f"eval_inputs/{n}views").iterdir()):
+            out = output / f"{n}views" / scene.name
             if (out / "mesh.ply.zst").exists():
                 continue
             print(f"{scene.name}, {n} views", flush=True)

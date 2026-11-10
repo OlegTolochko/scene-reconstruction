@@ -18,7 +18,7 @@
 # 4. (Optional) The assets in `default_assets` are downloaded by default.      #
 #    Set `download_assets` or `download_options` to specify individual assets  #
 #    or asset groups.                                                          #
-# 6. Run: pip install -r requirements.txt                                      #
+# 6. Install dependencies from the repository root: uv sync                                      #
 # 5. Run: python download_scannetpp.py download_scannetpp.yml                  #
 #                                                                              #
 # Other datasets available through this script:                                #
