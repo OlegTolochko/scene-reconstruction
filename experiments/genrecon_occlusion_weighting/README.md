@@ -56,18 +56,30 @@ down-weighted view). A run is worth it if `around_vmean` separates better than `
 
 ## Setting
 
-This uses the unposed setting of `experiments/unposed_genrecon`: VGGT-Omega's cameras and depth, so the depth is
-consistent with the cameras GenRecon projects with, in the same units, without any alignment. Variants:
+This uses the unposed setting of `experiments/unposed_genrecon`: the cameras and depth of one model, so the
+depth is consistent with the cameras GenRecon projects with, in the same units, without any alignment.
+`--model` picks the model, as in `run_eval.py`:
 
-| Variant | Depth $D$, confidence $c$ | Purpose |
-| --- | --- | --- |
-| `vggt` | VGGT-Omega depth; $c$ ramps linearly from 0 at conf 2 to 1 at conf 5 | the method |
-| `gt` | the laser scan rendered at the same VGGT-Omega cameras, $c=1$ ($c=0$ where a ray hits nothing) | oracle: separates the mechanism from the cue quality |
-| `identity` | none, $v=\text{valid}$ | must reproduce unposed GenRecon; checks the patched code path |
+| `--model` | Cameras and depth | Baseline | Outputs |
+| --- | --- | --- | --- |
+| `vggt_omega` (default) | VGGT-Omega, `vggt.npz` | `outputs/unposed_genrecon` | `outputs/genrecon_occlusion_weighting` |
+| `solv3r` | Solv3R, `solv3r.npz` (depth 504 px on the long side) | `outputs/unposed_genrecon_solv3r` | `outputs/genrecon_occlusion_weighting_solv3r` |
+
+Solv3R beats VGGT-Omega on unposed GenRecon, so it is the stronger baseline to improve on. Variants:
+
+| Variant | Depth $D$, confidence $c$ | Output folder | Purpose |
+| --- | --- | --- | --- |
+| `depth` | the model's depth; $c$ ramps linearly from 0 at conf 2 to 1 at conf 5 | `vggt/`, `solv3r/` | the method |
+| `gt` | the laser scan rendered at the same cameras, $c=1$ ($c=0$ where a ray hits nothing) | `gt/` | oracle: separates the mechanism from the cue quality |
+| `identity` | none, $v=\text{valid}$ | `identity/` | must reproduce unposed GenRecon; checks the patched code path |
 
 For `gt`, the cameras are placed in the scan with the similarity transform from their centres to the
 ScanNet++ centres, as `run_eval.py` does for the mesh. The depth is divided by its scale. The cameras stay
-VGGT-Omega's, so only the depth differs from `vggt`.
+the model's, so only the depth differs from `depth`. The `gt` cue therefore differs between the models.
+
+The confidence ramp starts at convert.py's threshold (conf 2), which convert.py uses for both models. Check
+`c_mean` in `check.json` before reading Solv3R results: if Solv3R's confidence has a different range, pass
+`cues.py --conf-lo --conf-hi`.
 
 Why this baseline matters even though we will finetune: it validates the cue pipeline, because frame, scale or
 sign bugs show up here instead of being silently ignored by zero-initialised inputs. It is also the ablation
@@ -75,21 +87,26 @@ that finetuning has to beat ("would a hand-made visibility mask do the same?").
 
 ## Run
 
-Requires the unposed GenRecon runs (`experiments/unposed_genrecon/run_eval.py`, for `vggt.npz` and the
-baseline meshes), the GenRecon env, and the scans from `scripts/download_scannetpp_eval.yml`.
+Requires the unposed GenRecon runs (`experiments/unposed_genrecon/run_eval.py [--model solv3r]`, for the
+model's npz and the baseline meshes), the GenRecon env, and the scans from `scripts/download_scannetpp_eval.yml`.
 
 ```bash
 uv run experiments/genrecon_occlusion_weighting/cues.py 32     # depth cues + check.json (optional: run.py builds them)
-uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant vggt
+uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant depth
 uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant gt
 uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant identity
-uv run experiments/genrecon_occlusion_weighting/variance_check.py 32 [scene ...]  # --cue gt (default) or vggt
+uv run experiments/genrecon_occlusion_weighting/variance_check.py 32 [scene ...]  # --cue gt (default) or depth
 uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant gt --var-mode around_vmean --tag around_vmean
 uv run scripts/evaluate_scannetpp.py outputs/genrecon_occlusion_weighting/vggt/32views   # and gt, identity
 uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views           # baseline
+
+# Solv3R's cameras and depth: add --model solv3r to every command above
+uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant depth --model solv3r
+uv run scripts/evaluate_scannetpp.py outputs/genrecon_occlusion_weighting_solv3r/solv3r/32views
+uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon_solv3r/32views    # baseline
 ```
 
-`--matched` uses `run_eval.py --matched`'s GenRecon settings (baseline `outputs/unposed_genrecon_matched`).
+`--matched` uses `run_eval.py --matched`'s GenRecon settings (baseline `outputs/unposed_genrecon[_solv3r]_matched`).
 Scene IDs after the view count restrict the run. `--stages ss,shape` weights only those stages (default all
 three). `--var-mode` picks the variance (default `weighted`). `--tau-vox --rho --softness --lam --eps --kappa` override the defaults in `visibility.Params`; use
 `--tag` to give such a run its own output folder.
@@ -97,14 +114,14 @@ three). `--var-mode` picks the variance (default `weighted`). `--tau-vox --rho -
 ## Outputs
 
 ```text
-outputs/genrecon_occlusion_weighting/
+outputs/genrecon_occlusion_weighting[_solv3r]/
 ├── cues/<N>views/<scene>/
-│   ├── vggt.npz, gt.npz            names, depth [S, H, W], conf [S, H, W], K [S, 3, 3] (cues.py)
-│   └── check.json                  VGGT-Omega depth against the scan, per view and mean
+│   ├── vggt.npz | solv3r.npz, gt.npz   names, depth [S, H, W], conf [S, H, W], K [S, 3, 3] (cues.py)
+│   └── check.json                  the model's depth against the scan, per view and mean
 ├── variance_check/<cue>[_matched]/<N>views/<scene>/
 │   ├── variances.npz               per cell of stage 1's grid: each mode's variance, sum of valid, sum of v
 │   └── check.json                  AUROC per mode
-└── <variant>[_matched][_<tag>]/<N>views/<scene>/
+└── <vggt | solv3r | gt | identity>[_matched][_<tag>]/<N>views/<scene>/
     ├── mesh.ply.zst, align.json    as unposed_genrecon/run_eval.py
     ├── scene/                      convert.py's GenRecon input
     └── genrecon/
@@ -116,11 +133,11 @@ outputs/genrecon_occlusion_weighting/
 
 What to check before reading the mesh scores:
 
-- `check.json`: `median_gt_over_vggt` should be close to 1, and AbsRel small. Otherwise the cue has a frame or
+- `check.json`: `median_gt_over_pred` should be close to 1, and AbsRel small. Otherwise the cue has a frame or
   scale error, not just noise.
 - `visibility_stats.json` for `gt`: the Delta / tau histogram should have a peak near 0 (surface voxels) and
   mass above 1 (occluded pairs). Pairs with v < 0.5 should be a minority, and voxels in the fallback rare.
-- `identity` should match `outputs/unposed_genrecon` up to GPU nondeterminism.
+- `identity` should match `outputs/unposed_genrecon[_solv3r]` up to GPU nondeterminism.
 
 ## Files
 
@@ -128,8 +145,8 @@ What to check before reading the mesh scores:
 | --- | --- | --- |
 | `visibility.py` | torch | $v$, the $\kappa$ fallback, the variance modes, and the v-weighted copies of both aggregator forwards |
 | `inject.py` | GenRecon | patches `FullSceneImagesTo3DPipeline` (as `genrecon_oracle_occupancy/inject.py` does) and calls `reconstruct_scene.main()` |
-| `cues.py` | root | builds the `vggt` and `gt` cues, reusing `evaluate_scannetpp.py`'s scan loading and depth rendering and `run_eval.py`'s `umeyama` |
-| `run.py` | root | the scene loop. It reuses `run_eval.process()` (images, VGGT-Omega, convert.py, GenRecon, alignment with the scan), with `inject.py` as GenRecon's entry point |
+| `cues.py` | root | builds the model's depth cue and the `gt` cue, reusing `evaluate_scannetpp.py`'s scan loading and depth rendering and `run_eval.py`'s `umeyama` |
+| `run.py` | root | the scene loop. It reuses `run_eval.process()` (images, VGGT-Omega or Solv3R, convert.py, GenRecon, alignment with the scan), with `inject.py` as GenRecon's entry point |
 | `variance_check.py` | root | AUROC of each variance mode for stage 1's true and false cells, from `inject.py --vis_dump` |
 | `test_visibility.py` | torch | checks $v$ on synthetic scenes, and checks that $v=\text{valid}$ is bit-identical to GenRecon's aggregators in every variance mode (fp32 and bf16) |
 
