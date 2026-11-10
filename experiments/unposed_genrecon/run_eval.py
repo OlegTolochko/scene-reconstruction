@@ -88,9 +88,26 @@ def run(cmd, log, cwd=ROOT, env=None):
     subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
 
 
-def process(scene_in, out, shared, genrecon_args, model="vggt_omega", script=("reconstruct_scene.py",)):
-    """shared: folder holding the model's input and output, the same for both runs.
+def genrecon(npz, scene, recon, genrecon_args, log, script=("reconstruct_scene.py",)):
+    """convert.py's COLMAP scene from npz, then GenRecon on it.
     script: GenRecon's entry point and its leading arguments, run from papers/GenRecon."""
+    env = {**os.environ, "ATTN_BACKEND": "flash_attn", "SPARSE_ATTN_BACKEND": "flash_attn",
+           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
+    run([GENRECON_PYTHON, HERE / "convert.py", npz, "--out", scene], log)
+    # Geometry only (as the baseline). 999 = every image.
+    run([GENRECON_PYTHON, *script, "--mode", "Iphone", "--path", scene,
+         "--colmap_subdir", "colmap", "--output_path", recon,
+         "--ss_ckpt", CKPT / "sparse_structure/ckpts/sparse_structure.pt",
+         "--shape_ckpt", CKPT / "shape_slat/ckpts/shape_slat.pt",
+         "--tex_ckpt", CKPT / "texture_slat/ckpts/texture_slat.pt",
+         "--num_imgs_per_scene", "999", *genrecon_args,
+         "--pipeline_config", "configs/pipelines/original.json", "--proj_batch_voxels", "1024"],
+        log, cwd=GENRECON, env=env)
+
+
+def process(scene_in, out, shared, genrecon_args, model, script=("reconstruct_scene.py",)):
+    """shared: folder holding the model's input and output, the same for both runs.
+    script: as in genrecon()."""
     frames = json.loads((scene_in / "dslr/nerfstudio/transforms_undistorted.json").read_text())["frames"]
     python, infer, npz_name = MODELS[model]
     npz, scene, recon = shared / npz_name, out / "scene", out / "genrecon"
@@ -103,22 +120,11 @@ def process(scene_in, out, shared, genrecon_args, model="vggt_omega", script=("r
         if not link.exists():
             link.symlink_to((scene_in / "dslr/resized_undistorted_images" / f["file_path"]).resolve())
 
-    env = {**os.environ, "ATTN_BACKEND": "flash_attn", "SPARSE_ATTN_BACKEND": "flash_attn",
-           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
     with open(out / "run.log", "a") as log:
         if not npz.exists():
             run([python, infer, images, "--num-images", len(frames), "--output", npz], log)
         if not (recon / "mesh.ply").exists():
-            run([GENRECON_PYTHON, HERE / "convert.py", npz, "--out", scene], log)
-            # Geometry only (as the baseline). 999 = every image.
-            run([GENRECON_PYTHON, *script, "--mode", "Iphone", "--path", scene,
-                 "--colmap_subdir", "colmap", "--output_path", recon,
-                 "--ss_ckpt", CKPT / "sparse_structure/ckpts/sparse_structure.pt",
-                 "--shape_ckpt", CKPT / "shape_slat/ckpts/shape_slat.pt",
-                 "--tex_ckpt", CKPT / "texture_slat/ckpts/texture_slat.pt",
-                 "--num_imgs_per_scene", "999", *genrecon_args,
-                 "--pipeline_config", "configs/pipelines/original.json", "--proj_batch_voxels", "1024"],
-                log, cwd=GENRECON, env=env)
+            genrecon(npz, scene, recon, genrecon_args, log, script)
 
     # Predicted image i (convert.py's {i:04d}.png) is the i-th image path in the npz
     names = [Path(p).name for p in np.load(npz)["image_paths"]]

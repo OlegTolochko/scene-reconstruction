@@ -13,6 +13,11 @@ Runs in GenRecon's environment, from papers/GenRecon (run.py does this):
 CUES.npz (cues.py) holds one depth map per image of the scene: names, depth [S, H, W], conf [S, H, W]
 in [0, 1] and K [S, 3, 3] normalised to the full image. Depth is in the units of GenRecon's cameras.
 --vis_identity sets v = valid (no cues needed), which must reproduce plain GenRecon.
+
+--vis_dump OUT.npz stops after stage 1's conditioning, before any sampling, and writes for every cell of
+stage 1's global grid (C order, shape `grid`, R cells per chunk side) the variance each --vis_var_mode
+would give the aggregator, as the mean over channels (weighted, original, around_vmean), and the
+visibility of the views (sum_valid, sum_v). variance_check.py uses it.
 """
 
 import argparse
@@ -40,12 +45,13 @@ class Visibility:
     def __init__(self, args, out: Path):
         self.args, self.out = args, out
         self.p = vis.Params(args.vis_tau_vox, args.vis_rho, args.vis_softness, args.vis_lam, args.vis_eps,
-                            args.vis_kappa)
+                            args.vis_kappa, args.vis_var_mode)
         self.stages = set(args.vis_stages.split(","))
         self.cues = None  # loaded on first use, after get_images has written cameras.json
         self.stage = None
         self.pending = None
         self.stats = {}
+        self.dump = {"sum_valid": [], "sum_v": [], **{m: [] for m in vis.VAR_MODES}}
 
     def load(self, device):
         if self.cues is not None or self.args.vis_identity:
@@ -102,6 +108,22 @@ class Visibility:
             s["delta_over_tau_hist"][int(b)] += int(n)
         return v
 
+    def record(self, feats, mask, v):
+        """The per-cell values of --vis_dump for one batch of the dense aggregator: v [B, N, V]."""
+        with torch.no_grad():
+            self.dump["sum_valid"].append(mask.sum(1)[0].cpu())
+            self.dump["sum_v"].append(v.sum(1)[0].float().cpu())
+            for mode in vis.VAR_MODES:
+                var = vis.moments(feats, mask, v, mode, one_pass=True)[1]  # [B, 1, V, D]
+                self.dump[mode].append(var[0, 0].float().mean(-1).cpu())
+
+    def write_dump(self, grid, R: int):
+        arrays = {k: torch.cat(x).numpy() for k, x in self.dump.items()}
+        if len(arrays["sum_v"]) != int(np.prod(grid)):
+            raise RuntimeError(f"dumped {len(arrays['sum_v'])} cells, the grid {grid} has {int(np.prod(grid))}")
+        np.savez_compressed(self.args.vis_dump, grid=np.array(grid), R=R, **arrays)
+        print(f"[visibility] wrote {self.args.vis_dump}, stopping before sampling", flush=True)
+
     def take(self, shape):
         v, self.pending = self.pending, None
         if v is not None and tuple(v.shape) != tuple(shape):
@@ -117,11 +139,17 @@ def stage_of(pipeline, flow_model) -> str:
 def install(state: Visibility):
     def wrap_build(build):
         def wrapped(self, flow_model, *args, **kwargs):
-            state.begin(stage_of(self, flow_model), flow_model.resolution)
+            stage = stage_of(self, flow_model)
+            state.begin(stage, flow_model.resolution)
             try:
-                return build(self, flow_model, *args, **kwargs)
+                out = build(self, flow_model, *args, **kwargs)
             finally:
                 state.end()
+            if state.args.vis_dump and stage == "ss":
+                rel_t, R = args[4], args[5]  # as in _build_global_dense_cond's signature
+                state.write_dump(self._global_grid_layout(rel_t, R)[1], R)
+                raise SystemExit(0)
+            return out
         return wrapped
 
     P = fs.FullSceneImagesTo3DPipeline
@@ -144,6 +172,9 @@ def install(state: Visibility):
     def dense_forward(self, feats, mask, camera_emb=None):
         v = state.take(mask.shape[1:])  # [N, V]
         if v is None:
+            return dense_orig(self, feats, mask, camera_emb)
+        if state.args.vis_dump:
+            state.record(feats, mask, v[None])
             return dense_orig(self, feats, mask, camera_emb)
         return vis.dense_forward(self, feats, mask, v[None], state.p, camera_emb)
 
@@ -168,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vis_lam", type=float, default=d.lam)
     p.add_argument("--vis_eps", type=float, default=d.eps)
     p.add_argument("--vis_kappa", type=float, default=d.kappa)
+    p.add_argument("--vis_var_mode", choices=vis.VAR_MODES, default=d.var_mode, help="variance the aggregator gets")
+    p.add_argument("--vis_dump", type=Path, help="write stage 1's per-cell variances here and stop (variance_check.py)")
     return p
 
 
@@ -177,6 +210,8 @@ def main():
         raise SystemExit("--vis_cues is required unless --vis_identity")
     if not set(args.vis_stages.split(",")) <= set(STAGES):
         raise SystemExit(f"--vis_stages must be a subset of {STAGES}")
+    if args.vis_dump and (args.vis_identity or "ss" not in args.vis_stages.split(",")):
+        raise SystemExit("--vis_dump needs cues and the ss stage")
     sys.argv = [sys.argv[0], *rest]  # the reconstruct_scene.py arguments
     out = Path(reconstruct_scene.build_parser().parse_args(rest).output_path)
     out.mkdir(parents=True, exist_ok=True)

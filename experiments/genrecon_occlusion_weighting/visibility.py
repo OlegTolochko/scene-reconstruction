@@ -7,15 +7,24 @@ GenRecon; the aggregator functions take the frozen aggregator module as `agg` an
     g(Delta) = sigmoid((tau - Delta) / (s * tau)),   tau = max(tau_vox * voxel_size, rho * D_i)
 
 then, per voxel, alpha = min(1, sum_i v_i / kappa) and v <- alpha * v + (1 - alpha) * valid, so a voxel
-hidden in (almost) every view gets GenRecon's own weights back. The aggregator uses v for the mean and
-variance and adds lam * log((v + eps) / (1 + eps)) to the view logits. That term is 0 at v = 1, so
-v = valid reproduces GenRecon exactly (same arithmetic, same dtypes).
+hidden in (almost) every view gets GenRecon's own weights back. The aggregator uses the v-weighted mean
+mu_v, a variance chosen by var_mode, and adds lam * log((v + eps) / (1 + eps)) to the view logits:
+
+    weighted      sum_i v_i (f_i - mu_v)^2 / sum_i v_i         occluded views leave the spread too
+    original      GenRecon's: over the valid views, around their unweighted mean mu
+    around_vmean  over the valid views, around mu_v: = original + (mu - mu_v)^2, so it never decreases, and
+                  it grows by how far the weighting moved the mean (large behind a surface)
+
+The logit term is 0 at v = 1, so v = valid reproduces GenRecon exactly in every mode (same arithmetic,
+same dtypes).
 """
 
 from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
+
+VAR_MODES = ("weighted", "original", "around_vmean")
 
 
 @dataclass
@@ -26,6 +35,11 @@ class Params:
     lam: float = 1.0  # lambda, weight of the log-visibility term in the view logits
     eps: float = 1e-3
     kappa: float = 1.0  # sum of v below which we blend back to GenRecon's weights
+    var_mode: str = "weighted"  # one of VAR_MODES
+
+    def __post_init__(self):
+        if self.var_mode not in VAR_MODES:
+            raise ValueError(f"var_mode must be one of {VAR_MODES}, got {self.var_mode!r}")
 
 
 def visibility(
@@ -69,6 +83,29 @@ def fallback(v: torch.Tensor, valid: torch.Tensor, kappa: float) -> tuple[torch.
     return alpha * v + (1.0 - alpha) * valid.float(), alpha
 
 
+def moments(feats, mask, v, mode: str, one_pass: bool):
+    """mu_v and the variance of `mode` over the views (dim 1), keepdim. one_pass: E[f^2] - mu^2 as in
+    GenRecon's dense aggregator, else (f - mu)^2 as in its sparse one, so v = valid matches each exactly."""
+    mask_f = mask.unsqueeze(-1)
+    w_f = (v * mask).unsqueeze(-1).to(feats.dtype)
+    # GenRecon divides by max(count, 1); counts are integers, so a tiny floor gives the same values at
+    # v = valid and keeps fractional sums of v unchanged.
+    sum_w = w_f.sum(dim=1, keepdim=True).clamp_min(1e-6)
+    mu_v = (feats * w_f).sum(dim=1, keepdim=True) / sum_w
+    if mode == "weighted":
+        w, n, centre = w_f, sum_w, mu_v
+    else:  # GenRecon's variance, over the valid views around their mean
+        n = mask_f.sum(dim=1, keepdim=True).clamp_min(1)
+        w, centre = mask_f, (feats * mask_f).sum(dim=1, keepdim=True) / n
+    if one_pass:
+        var = ((feats * w * feats).sum(dim=1, keepdim=True) / n - centre * centre).clamp_min(0)
+    else:
+        var = (((feats - centre) ** 2) * w).sum(dim=1, keepdim=True) / n
+    if mode == "around_vmean":
+        var = var + (centre - mu_v) ** 2  # sum of squares around mu_v instead of around the mean
+    return mu_v, var
+
+
 def _logit_bias(v: torch.Tensor, p: Params, dtype: torch.dtype) -> torch.Tensor:
     """lam * log((v + eps) / (1 + eps)): exactly 0 at v = 1, about lam * log(eps) at v = 0."""
     return (p.lam * torch.log((v.float() + p.eps) / (1.0 + p.eps))).to(dtype)
@@ -81,16 +118,8 @@ def dense_forward(agg, feats, mask, v, p: Params, camera_emb=None):
     B, N, V, D = feats.shape
     assert mask.shape == (B, N, V) and v.shape == (B, N, V)
 
-    mask_f = mask.unsqueeze(-1)
-    w_f = (v * mask).unsqueeze(-1).to(feats.dtype)  # [B, N, V, 1]
     all_invalid = (~mask).all(dim=1, keepdim=True).unsqueeze(-1)
-    # GenRecon divides by max(count, 1); counts are integers, so a tiny floor gives the same values at
-    # v = valid and keeps fractional sums of v unchanged.
-    sum_w = w_f.sum(dim=1, keepdim=True).clamp_min(1e-6)
-
-    feats_w = feats * w_f
-    mu = feats_w.sum(dim=1, keepdim=True) / sum_w
-    var = ((feats_w * feats).sum(dim=1, keepdim=True) / sum_w - mu * mu).clamp_min(0)
+    mu, var = moments(feats, mask, v, p.var_mode, one_pass=True)  # [B, 1, V, D]
 
     feat_W, feat_b = agg.feature_mlp[0].weight, agg.feature_mlp[0].bias
     weight_W, weight_b = agg.weight_mlp[0].weight, agg.weight_mlp[0].bias
@@ -106,7 +135,7 @@ def dense_forward(agg, feats, mask, v, p: Params, camera_emb=None):
         wl = layer(wl)
 
     wl = wl + _logit_bias(v, p, wl.dtype).unsqueeze(-1)
-    wl = wl.masked_fill(~mask_f, -1e9)
+    wl = wl.masked_fill(~mask.unsqueeze(-1), -1e9)
     w = torch.softmax(wl, dim=1)
     w = torch.where(all_invalid, torch.zeros_like(w), w)
     return (mu + (h * w).sum(dim=1, keepdim=True)).squeeze(1)  # [B, V, D]
@@ -118,20 +147,15 @@ def sparse_forward(agg, x, mask, v, p: Params):
     S, N, D = feats.shape
     assert mask.shape == (S, N) and v.shape == (S, N)
 
-    mask_f = mask.unsqueeze(-1)
-    w_f = (v * mask).unsqueeze(-1).to(feats.dtype)
     all_invalid = (~mask).all(dim=1, keepdim=True).unsqueeze(-1)
-    sum_w = w_f.sum(dim=1, keepdim=True).clamp_min(1e-6)
-
-    mu = (feats * w_f).sum(dim=1, keepdim=True) / sum_w
-    var = (((feats - mu) ** 2) * w_f).sum(dim=1, keepdim=True) / sum_w
+    mu, var = moments(feats, mask, v, p.var_mode, one_pass=False)  # [S, 1, D]
 
     h_flat = torch.cat([feats, mu.expand(-1, N, -1), var.expand(-1, N, -1)], dim=-1).reshape(S * N, 3 * D)
     feats_prime = agg.feature_mlp(h_flat).reshape(S, N, D)
     wl = agg.weight_mlp(h_flat).reshape(S, N, 1)
 
     wl = wl + _logit_bias(v, p, wl.dtype).unsqueeze(-1)
-    wl = wl.masked_fill(~mask_f, -1e9)
+    wl = wl.masked_fill(~mask.unsqueeze(-1), -1e9)
     w = torch.softmax(wl, dim=1)
     w = torch.where(all_invalid, torch.zeros_like(w), w)
 

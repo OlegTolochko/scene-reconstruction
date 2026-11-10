@@ -43,7 +43,7 @@ def randomised(agg, dtype=torch.float32):
     return agg.to(dtype).eval()
 
 
-def camera(z_axis_depth=None):
+def camera():
     """One camera at the origin looking along +z, focal 1 (normalised), principal point at the centre."""
     w2c = torch.eye(4)[None]
     K = torch.tensor([[[1.0, 0, 0.5], [0, 1.0, 0.5], [0, 0, 1]]])
@@ -135,18 +135,36 @@ class TestAggregators(unittest.TestCase):
     def test_dense_identity(self):
         for dtype in (torch.float32, torch.bfloat16):
             agg, feats, mask = self.dense(dtype)
-            with torch.no_grad():
-                ref = agg(feats, mask)
-                out = vis.dense_forward(agg, feats, mask, mask.float(), P)
-            self.assertTrue(torch.equal(ref, out), dtype)
+            for mode in vis.VAR_MODES:
+                with torch.no_grad():
+                    ref = agg(feats, mask)
+                    out = vis.dense_forward(agg, feats, mask, mask.float(), vis.Params(var_mode=mode))
+                self.assertTrue(torch.equal(ref, out), (dtype, mode))
 
     def test_sparse_identity(self):
         for dtype in (torch.float32, torch.bfloat16):
             agg, feats, mask = self.sparse(dtype)
-            with torch.no_grad():
-                ref = agg(Sparse(feats), mask).feats
-                out = vis.sparse_forward(agg, Sparse(feats), mask, mask.float(), P).feats
-            self.assertTrue(torch.equal(ref, out), dtype)
+            for mode in vis.VAR_MODES:
+                with torch.no_grad():
+                    ref = agg(Sparse(feats), mask).feats
+                    out = vis.sparse_forward(agg, Sparse(feats), mask, mask.float(), vis.Params(var_mode=mode)).feats
+                self.assertTrue(torch.equal(ref, out), (dtype, mode))
+
+    def test_variance_modes(self):
+        # One view of three hidden: original ignores v, around_vmean = original + (mu - mu_v)^2 >= original.
+        feats = torch.tensor([[[0.0], [1.0], [5.0]]])  # [S=1, N=3, D=1]
+        mask = torch.ones(1, 3, dtype=torch.bool)
+        v = torch.tensor([[1.0, 1.0, 0.0]])
+        var = {m: vis.moments(feats, mask, v, m, one_pass=False)[1].item() for m in vis.VAR_MODES}
+        mu_v = vis.moments(feats, mask, v, "original", one_pass=False)[0].item()
+        self.assertAlmostEqual(mu_v, 0.5, places=5)
+        self.assertAlmostEqual(var["weighted"], 0.25, places=5)  # over views 0 and 1 only
+        self.assertAlmostEqual(var["original"], 14 / 3, places=5)  # around mu = 2: (4 + 1 + 9) / 3
+        self.assertAlmostEqual(var["around_vmean"], 14 / 3 + 1.5 ** 2, places=5)  # (0.25 + 0.25 + 20.25) / 3
+        # the dense layout [B, N, V, D]
+        dense = {m: vis.moments(feats[:, :, None], mask[..., None], v[..., None], m, one_pass=True)[1].item() for m in vis.VAR_MODES}
+        for m in vis.VAR_MODES:
+            self.assertAlmostEqual(dense[m], var[m], places=5, msg=m)
 
     def test_occluded_view_is_removed(self):
         # Dropping a view with v = 0 matches (up to the eps term) running GenRecon without that view.

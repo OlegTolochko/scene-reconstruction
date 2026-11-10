@@ -26,7 +26,7 @@ sys.path.insert(0, str(HERE))
 import cues  # noqa: E402
 import run_eval  # noqa: E402
 
-OPTIONS = ("stages", "tau_vox", "rho", "softness", "lam", "eps", "kappa")  # passed on as inject.py's --vis_*
+OPTIONS = ("stages", "var_mode", "tau_vox", "rho", "softness", "lam", "eps", "kappa")  # passed on as inject.py's --vis_*
 
 
 def main():
@@ -37,7 +37,9 @@ def main():
     parser.add_argument("--matched", action="store_true", help="GenRecon settings matched to the baseline")
     parser.add_argument("--tag", help="suffix for the output folder, e.g. for a parameter sweep")
     parser.add_argument("--stages", help="subset of ss,shape,tex to weight (default: all)")
-    for name in OPTIONS[1:]:
+    parser.add_argument("--var-mode", dest="var_mode", choices=("weighted", "original", "around_vmean"),
+                        help="variance the aggregator gets (visibility.py, default: weighted)")
+    for name in OPTIONS[2:]:
         parser.add_argument(f"--{name.replace('_', '-')}", dest=name, type=float)
     args = parser.parse_args()
 
@@ -60,7 +62,7 @@ def main():
             else:
                 cue = cues.build(args.views, scene) / f"{args.variant}.npz"
                 script = [HERE / "inject.py", "--vis_cues", cue]
-            views, rmse = run_eval.process(inputs / scene, out, shared, genrecon_args, script=[*script, *options])
+            views, rmse = run_eval.process(inputs / scene, out, shared, genrecon_args, "vggt_omega", script=[*script, *options])
             print(f"  done, {views} views, camera alignment error {rmse:.3f} m", flush=True)
         except Exception as e:  # one bad scene should not stop the rest
             print(f"  failed ({e}), see {out / 'run.log'}", flush=True)

@@ -31,6 +31,29 @@ and per voxel $\alpha=\min(1,\sum_i v_i/\kappa)$, $v\leftarrow\alpha v+(1-\alpha
 $v=\text{valid}$ is GenRecon (its mean, variance and softmax already skip views the voxel projects outside
 of). The method deviates from GenRecon only where there is confident evidence of occlusion.
 
+### Which variance (`--var-mode`)
+
+The first runs used $\boldsymbol\sigma_v^2$ (`weighted`) and did not move stage 1 towards the scan. One
+explanation: removing the occluded views also removes their disagreement, so a voxel behind a surface gets a
+small variance and looks like a surface to the frozen MLPs. Two alternatives keep the v-weighted mean
+$\boldsymbol\mu_v$:
+
+| `--var-mode` | Variance | Behind a surface |
+| --- | --- | --- |
+| `weighted` | $\sum_i v_i(\mathbf f_i-\boldsymbol\mu_v)^2/\sum_i v_i$ | shrinks: looks more like a surface |
+| `original` | GenRecon's, over the valid views around $\boldsymbol\mu$ | unchanged |
+| `around_vmean` | over the valid views around $\boldsymbol\mu_v$, $=\boldsymbol\sigma^2+(\boldsymbol\mu-\boldsymbol\mu_v)^2$ | grows by how far the weighting moved the mean: looks more empty |
+
+`around_vmean` never lowers the variance. Its price is that a true surface that is partly occluded also gets
+a larger variance. That fits the baseline, which has recall to spare (0.97 within 1 cell) but lacks
+precision (0.75). A clean $\boldsymbol\mu_v$ with an inflated variance never occurred in training, so only a
+run shows how strongly the MLPs react.
+
+`variance_check.py` tests this before a run. It stops GenRecon after stage 1's conditioning, labels the
+baseline's stage 1 cells with the scan (true: contains surface, false: 2 or more cells from it) and reports
+how well each variance separates false from true cells (AUROC, over all cells and over cells with a
+down-weighted view). A run is worth it if `around_vmean` separates better than `original`.
+
 ## Setting
 
 This uses the unposed setting of `experiments/unposed_genrecon`: VGGT-Omega's cameras and depth, so the depth is
@@ -60,13 +83,15 @@ uv run experiments/genrecon_occlusion_weighting/cues.py 32     # depth cues + ch
 uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant vggt
 uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant gt
 uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant identity
+uv run experiments/genrecon_occlusion_weighting/variance_check.py 32 [scene ...]  # --cue gt (default) or vggt
+uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant gt --var-mode around_vmean --tag around_vmean
 uv run scripts/evaluate_scannetpp.py outputs/genrecon_occlusion_weighting/vggt/32views   # and gt, identity
 uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views           # baseline
 ```
 
 `--matched` uses `run_eval.py --matched`'s GenRecon settings (baseline `outputs/unposed_genrecon_matched`).
 Scene IDs after the view count restrict the run. `--stages ss,shape` weights only those stages (default all
-three). `--tau-vox --rho --softness --lam --eps --kappa` override the defaults in `visibility.Params`; use
+three). `--var-mode` picks the variance (default `weighted`). `--tau-vox --rho --softness --lam --eps --kappa` override the defaults in `visibility.Params`; use
 `--tag` to give such a run its own output folder.
 
 ## Outputs
@@ -76,6 +101,9 @@ outputs/genrecon_occlusion_weighting/
 ├── cues/<N>views/<scene>/
 │   ├── vggt.npz, gt.npz            names, depth [S, H, W], conf [S, H, W], K [S, 3, 3] (cues.py)
 │   └── check.json                  VGGT-Omega depth against the scan, per view and mean
+├── variance_check/<cue>[_matched]/<N>views/<scene>/
+│   ├── variances.npz               per cell of stage 1's grid: each mode's variance, sum of valid, sum of v
+│   └── check.json                  AUROC per mode
 └── <variant>[_matched][_<tag>]/<N>views/<scene>/
     ├── mesh.ply.zst, align.json    as unposed_genrecon/run_eval.py
     ├── scene/                      convert.py's GenRecon input
@@ -98,14 +126,15 @@ What to check before reading the mesh scores:
 
 | File | Env | Role |
 | --- | --- | --- |
-| `visibility.py` | torch | $v$, the $\kappa$ fallback, and the v-weighted copies of both aggregator forwards |
+| `visibility.py` | torch | $v$, the $\kappa$ fallback, the variance modes, and the v-weighted copies of both aggregator forwards |
 | `inject.py` | GenRecon | patches `FullSceneImagesTo3DPipeline` (as `genrecon_oracle_occupancy/inject.py` does) and calls `reconstruct_scene.main()` |
 | `cues.py` | root | builds the `vggt` and `gt` cues, reusing `evaluate_scannetpp.py`'s scan loading and depth rendering and `run_eval.py`'s `umeyama` |
 | `run.py` | root | the scene loop. It reuses `run_eval.process()` (images, VGGT-Omega, convert.py, GenRecon, alignment with the scan), with `inject.py` as GenRecon's entry point |
-| `test_visibility.py` | torch | checks $v$ on synthetic scenes, and checks that $v=\text{valid}$ is bit-identical to GenRecon's aggregators (fp32 and bf16) |
+| `variance_check.py` | root | AUROC of each variance mode for stage 1's true and false cells, from `inject.py --vis_dump` |
+| `test_visibility.py` | torch | checks $v$ on synthetic scenes, and checks that $v=\text{valid}$ is bit-identical to GenRecon's aggregators in every variance mode (fp32 and bf16) |
 
-GenRecon is not modified. The only change outside this folder is a `script` argument on
-`run_eval.process()`, defaulting to `reconstruct_scene.py`.
+GenRecon is not modified. The only change outside this folder is in `run_eval.py`: a `script` argument
+(defaulting to `reconstruct_scene.py`), and convert.py + GenRecon split out of `process()` as `genrecon()`.
 
 ```bash
 uv run --with torch python -m unittest discover -s experiments/genrecon_occlusion_weighting -p "test_*.py" -v
