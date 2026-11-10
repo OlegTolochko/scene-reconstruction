@@ -12,9 +12,12 @@ aggregator learn how to use the cues instead. The training-free version is the a
 
 ## Method
 
+- Depth source: Solv3R, whose depth beats VGGT-Omega's in `experiments/solv3r_depth`. It gives depth, a
+  confidence per pixel and cameras fitted to its predicted rays, in the same format as VGGT-Omega's output.
 - Cues per (view, voxel): the depth residual `Δ/τ` (voxel depth minus observed depth, as in
-  `genrecon_occlusion_weighting/visibility.py`) and VGGT-Omega's confidence. The camera-to-voxel distance may be
-  added later.
+  `genrecon_occlusion_weighting/visibility.py`) and Solv3R's confidence. The confidence's range differs from
+  VGGT-Omega's, so the ramp in `visibility.py` (2 to 5) does not carry over; it is normalised from its
+  distribution on the training renders. The camera-to-voxel distance may be added later.
 - The cues are extra inputs to the first layer of both MLPs, with zero-initialised weights, so training starts
   exactly at GenRecon. A test checks that this is bit-identical to GenRecon.
 - The cues also weight the mean and variance, through a learnable version of the visibility weight `v`.
@@ -33,11 +36,12 @@ SAGE-10k, prepared with GenRecon's toolkit (`papers/GenRecon/data_toolkit_scenes
    with GenRecon's training scenes is then unlikely, though not certain.
 2. A train/val split per room with a fixed seed. The scene lists are committed. GenRecon publishes no split.
 3. Depth per rendered view:
-   - The cues come from VGGT-Omega, run on each room's renders, because the cue at test time is VGGT-Omega's.
-     This also gives a real confidence.
-   - The cameras are VGGT-Omega's too, aligned to the true ones with a similarity transform (as in
+   - The cues come from Solv3R, run on each room's renders, because the cue at test time is Solv3R's. This also
+     gives a real confidence. Solv3R predicts at 504 pixels on the long side, so depth and K are rescaled to the
+     render resolution before the dataset crops them.
+   - The cameras are Solv3R's too, aligned to the true ones with a similarity transform (as in
      `unposed_genrecon/run_eval.py`). Training then sees the same pose and depth errors as the unposed setting
-     at test time.
+     at test time (`run_eval.py --model solv3r`).
    - The targets stay in the true chunk frame. Rooms where the alignment fails are dropped.
    - A Z pass in `render_rooms.py` gives the true depth. It is used to check the alignment and the chunk frames,
      and for the oracle variant.
@@ -54,10 +58,10 @@ Only the sparse-structure latents are needed for the first stage.
 
 | Run | Question it answers |
 | --- | --- |
-| GenRecon (unposed) | baseline |
-| `genrecon_occlusion_weighting` | does learning beat a hand-made mask? |
-| finetuned without cues: same data, steps and VGGT-Omega cameras | control: separates the cues from "more finetuning on SAGE" |
-| finetuned with VGGT-Omega cues | the method |
+| GenRecon, unposed with Solv3R's cameras (`unposed_genrecon_solv3r`) | baseline |
+| `genrecon_occlusion_weighting` with Solv3R's depth | does learning beat a hand-made mask? Needs a Solv3R variant in its `cues.py`, which only reads VGGT-Omega so far |
+| finetuned without cues: same data, steps and Solv3R cameras | control: separates the cues from "more finetuning on SAGE" |
+| finetuned with Solv3R cues | the method |
 | finetuned with true depth | oracle: is the limit the cue or the mechanism? |
 
 The main claim is the method against the control. Against released GenRecon, the comparison also includes the
@@ -65,7 +69,7 @@ extra data and steps.
 
 ## Order
 
-1. Data: scene selection, split, Z pass, VGGT-Omega on the renders, depth sanity check on a few rooms.
+1. Data: scene selection, split, Z pass, Solv3R on the renders, depth sanity check on a few rooms.
 2. Aggregator with cue inputs, and the zero-init test.
 3. Dataset loading the cues, training for the sparse-structure stage, the control with the same settings.
 4. ScanNet++ dev set, then the shape stage if the sparse-structure stage helps.
@@ -75,4 +79,4 @@ extra data and steps.
 - How many rooms? About 500–1000 should be enough for an aggregator-only finetune.
 - Which cluster, and where does `DATA_ROOT` live? The toolkit runs on Linux only (Blender 5.0.1).
 - Aggregator only, or the aggregator and LoRA?
-- VGGT-Omega or Solv3R as the cue source? `vggt_omega_depth` and `solv3r_depth` measure their depth accuracy.
+- Solv3R's cameras from the rays (the paper's protocol, used so far) or from the camera head?
