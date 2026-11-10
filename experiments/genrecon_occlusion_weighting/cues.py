@@ -12,11 +12,11 @@ Each file holds names (convert.py's image names), depth [S, H, W], conf [S, H, W
 normalised to the full image. check.json compares the two depths where both are known: a median ratio far
 from 1 or a large AbsRel means a frame, scale or sign error, not a weak cue.
 
-Writes outputs/genrecon_visibility/cues/<N>views/<scene>/{vggt,gt}.npz and check.json; skips existing ones.
+Writes outputs/genrecon_occlusion_weighting/cues/<N>views/<scene>/{vggt,gt}.npz and check.json; skips existing ones.
 Needs experiments/unposed_genrecon/run_eval.py to have produced vggt.npz.
 
 Usage:
-    uv run experiments/genrecon_visibility/cues.py 32 [scene ...]
+    uv run experiments/genrecon_occlusion_weighting/cues.py 32 [scene ...]
 """
 
 import argparse
@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "experiments/unposed_genrecon"))
 import evaluate_scannetpp as ev  # noqa: E402
 from run_eval import NERFSTUDIO_TO_SCAN, umeyama  # noqa: E402
 
-OUT = ROOT / "outputs/genrecon_visibility/cues"
+OUT = ROOT / "outputs/genrecon_occlusion_weighting/cues"
 CONF_LO, CONF_HI = 2.0, 5.0  # convert.py keeps VGGT-Omega points with conf >= 2
 
 

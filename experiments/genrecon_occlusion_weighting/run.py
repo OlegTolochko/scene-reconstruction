@@ -7,12 +7,12 @@ entry point is inject.py. Variants:
     gt        v from the scan's depth at the same cameras, c = 1 (oracle: perfect cue)
     identity  v = valid, must reproduce unposed GenRecon (checks the patched code path)
 
-Writes outputs/genrecon_visibility/<variant>[_matched][_<tag>]/<N>views/<scene>/mesh.ply.zst and skips
+Writes outputs/genrecon_occlusion_weighting/<variant>[_matched][_<tag>]/<N>views/<scene>/mesh.ply.zst and skips
 scenes that already have one. The cues (cues.py) are built first if missing.
 
 Usage:
-    uv run experiments/genrecon_visibility/run.py 32 --variant vggt [--matched] [scene ...]
-    uv run scripts/evaluate_scannetpp.py outputs/genrecon_visibility/vggt/32views
+    uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant vggt [--matched] [scene ...]
+    uv run scripts/evaluate_scannetpp.py outputs/genrecon_occlusion_weighting/vggt/32views
 """
 
 import argparse
@@ -48,7 +48,7 @@ def main():
     scenes = args.scenes or sorted(p.name for p in inputs.iterdir())
 
     for scene in scenes:
-        out = ROOT / f"outputs/genrecon_visibility/{name}/{args.views}views/{scene}"
+        out = ROOT / f"outputs/genrecon_occlusion_weighting/{name}/{args.views}views/{scene}"
         shared = ROOT / f"outputs/unposed_genrecon/{args.views}views/{scene}"  # VGGT-Omega output
         if (out / "mesh.ply.zst").exists():
             continue

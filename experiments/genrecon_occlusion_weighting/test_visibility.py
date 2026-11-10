@@ -1,6 +1,6 @@
 """Checks for visibility.py against GenRecon's own aggregators. Needs only torch:
 
-    uv run --with torch python -m unittest discover -s experiments/genrecon_visibility -p "test_*.py" -v
+    uv run --with torch python -m unittest discover -s experiments/genrecon_occlusion_weighting -p "test_*.py" -v
 """
 
 import sys

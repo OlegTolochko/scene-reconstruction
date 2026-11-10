@@ -56,11 +56,11 @@ Requires the unposed GenRecon runs (`experiments/unposed_genrecon/run_eval.py`, 
 baseline meshes), the GenRecon env, and the scans from `scripts/download_scannetpp_eval.yml`.
 
 ```bash
-uv run experiments/genrecon_visibility/cues.py 32     # depth cues + check.json (optional: run.py builds them)
-uv run experiments/genrecon_visibility/run.py 32 --variant vggt
-uv run experiments/genrecon_visibility/run.py 32 --variant gt
-uv run experiments/genrecon_visibility/run.py 32 --variant identity
-uv run scripts/evaluate_scannetpp.py outputs/genrecon_visibility/vggt/32views   # and gt, identity
+uv run experiments/genrecon_occlusion_weighting/cues.py 32     # depth cues + check.json (optional: run.py builds them)
+uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant vggt
+uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant gt
+uv run experiments/genrecon_occlusion_weighting/run.py 32 --variant identity
+uv run scripts/evaluate_scannetpp.py outputs/genrecon_occlusion_weighting/vggt/32views   # and gt, identity
 uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views           # baseline
 ```
 
@@ -72,7 +72,7 @@ three). `--tau-vox --rho --softness --lam --eps --kappa` override the defaults i
 ## Outputs
 
 ```text
-outputs/genrecon_visibility/
+outputs/genrecon_occlusion_weighting/
 ├── cues/<N>views/<scene>/
 │   ├── vggt.npz, gt.npz            names, depth [S, H, W], conf [S, H, W], K [S, 3, 3] (cues.py)
 │   └── check.json                  VGGT-Omega depth against the scan, per view and mean
@@ -108,7 +108,7 @@ GenRecon is not modified. The only change outside this folder is a `script` argu
 `run_eval.process()`, defaulting to `reconstruct_scene.py`.
 
 ```bash
-uv run --with torch python -m unittest discover -s experiments/genrecon_visibility -p "test_*.py" -v
+uv run --with torch python -m unittest discover -s experiments/genrecon_occlusion_weighting -p "test_*.py" -v
 ```
 
 Not part of this experiment yet: multi-point sampling per voxel, the posed (DSLR) setting, and view counts

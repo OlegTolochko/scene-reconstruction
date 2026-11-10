@@ -7,7 +7,7 @@ and the forward of both MultiViewFeatAggregator classes, which use v (visibility
 The trained weights, the DiTs, chunking and voting are untouched.
 
 Runs in GenRecon's environment, from papers/GenRecon (run.py does this):
-    .venv/bin/python ../../experiments/genrecon_visibility/inject.py --vis_cues CUES.npz [--vis_* options] \
+    .venv/bin/python ../../experiments/genrecon_occlusion_weighting/inject.py --vis_cues CUES.npz [--vis_* options] \
         <reconstruct_scene.py arguments>
 
 CUES.npz (cues.py) holds one depth map per image of the scene: names, depth [S, H, W], conf [S, H, W]
