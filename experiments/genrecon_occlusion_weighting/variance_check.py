@@ -8,7 +8,7 @@ visibility.py (mean over channels):
     weighted      the current method's, over the v-weighted views
     around_vmean  over the valid views, around the v-weighted mean
 
-The baseline's stage 1 cells (experiments/unposed_genrecon) are labelled with the scan, which align.json
+The baseline's stage 1 cells (experiments/unposed_genrecon[_solv3r], the cameras of --model) are labelled with the scan, which align.json
 moves into GenRecon's frame: true if a cell contains scan surface, false if the nearest scan cell is 2 or more
 cells away (cells 1 away are left out, they are neither clearly right nor clearly wrong). A high variance
 should mean empty, so
@@ -20,11 +20,12 @@ should mean empty, so
 If around_vmean separates better than original, a full run with --var-mode around_vmean is worth doing. If
 weighted separates worse than original, weighting the variance pushed false cells towards "surface".
 
-Writes outputs/genrecon_occlusion_weighting/variance_check/<cue>[_matched]/<N>views/<scene>/{variances.npz,
-check.json} (skips scenes that have them) and prints the median over the scenes.
+Writes <out_root>/variance_check/<cue>[_matched]/<N>views/<scene>/{variances.npz, check.json} (out_root as
+in cues.py; skips scenes that have them) and prints the median over the scenes.
 
 Usage:
-    uv run experiments/genrecon_occlusion_weighting/variance_check.py 32 [scene ...] [--cue gt] [--matched]
+    uv run experiments/genrecon_occlusion_weighting/variance_check.py 32 [scene ...] [--cue gt|depth]
+        [--model solv3r] [--matched]
 """
 
 import argparse
@@ -46,7 +47,6 @@ import evaluate_scannetpp as ev  # noqa: E402
 import run_eval  # noqa: E402
 from occupancy import POINTS_PER_M2, R, layout, predicted_cells  # noqa: E402
 
-OUT = ROOT / "outputs/genrecon_occlusion_weighting/variance_check"
 MODES = ("original", "weighted", "around_vmean")  # visibility.VAR_MODES, GenRecon's first
 
 
@@ -106,17 +106,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("views", type=int, help="number of input views")
     parser.add_argument("scenes", nargs="*", help="scene IDs (default: every scene with a baseline run)")
-    parser.add_argument("--cue", choices=("gt", "vggt"), default="gt", help="depth for v (default: the scan)")
+    parser.add_argument("--cue", choices=("gt", "depth"), default="gt", help="depth for v (default: the scan)")
+    parser.add_argument("--model", choices=run_eval.MODELS, default="vggt_omega", help="whose cameras and depth")
     parser.add_argument("--matched", action="store_true", help="GenRecon settings matched to the baseline")
     args = parser.parse_args()
 
-    suffix = "_matched" if args.matched else ""
-    baselines = ROOT / f"outputs/unposed_genrecon{suffix}/{args.views}views"
+    suffix = ("" if args.model == "vggt_omega" else f"_{args.model}") + ("_matched" if args.matched else "")
+    baselines = ROOT / f"outputs/unposed_genrecon{suffix}/{args.views}views"  # run_eval.py's naming
+    cue = cues.depth_cue(args.model) if args.cue == "depth" else "gt"
     scenes = args.scenes or sorted(p.parent.name for p in baselines.glob("*/mesh.ply.zst"))
     genrecon_args = run_eval.MATCHED if args.matched else run_eval.SMARTPHONE
     results = {}
     for scene in scenes:
-        base, out = baselines / scene, OUT / f"{args.cue}{suffix}/{args.views}views/{scene}"
+        base = baselines / scene
+        out = cues.out_root(args.model) / f"variance_check/{cue}{'_matched' if args.matched else ''}/{args.views}views/{scene}"
         if (out / "check.json").exists():
             results[scene] = json.loads((out / "check.json").read_text())
             continue
@@ -124,10 +127,10 @@ def main():
         out.mkdir(parents=True, exist_ok=True)
         try:
             if not (out / "variances.npz").exists():
-                cue = cues.build(args.views, scene) / f"{args.cue}.npz"
-                script = [HERE / "inject.py", "--vis_cues", cue, "--vis_stages", "ss", "--vis_dump", out / "variances.npz"]
+                cue_file = cues.build(args.views, scene, args.model) / f"{cue}.npz"
+                script = [HERE / "inject.py", "--vis_cues", cue_file, "--vis_stages", "ss", "--vis_dump", out / "variances.npz"]
                 with open(out / "run.log", "a") as log:
-                    npz = ROOT / f"outputs/unposed_genrecon/{args.views}views/{scene}/vggt.npz"
+                    npz = cues.prediction_npz(args.views, scene, args.model)
                     run_eval.genrecon(npz, out / "scene", out / "genrecon", genrecon_args, log, script)
                 shutil.rmtree(out / "scene/rgb", ignore_errors=True)
             results[scene] = check(scene, base, out / "genrecon", np.load(out / "variances.npz"))
@@ -137,7 +140,7 @@ def main():
 
     if not results:
         return
-    print(f"\n{args.cue} cue, {len(results)} scenes, median over scenes "
+    print(f"\n{args.model} cameras, {cue} cue, {len(results)} scenes, median over scenes "
           f"(cells with a hidden view: {np.median([r['hidden_fraction'] for r in results.values()]):.2f})")
     print(f"{'variance':<14}{'auroc':>8}{'auroc_hidden':>14}")
     for mode in MODES:
