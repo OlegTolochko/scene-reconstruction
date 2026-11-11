@@ -108,7 +108,9 @@ uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon_solv3r/32views    
 
 `--matched` uses `run_eval.py --matched`'s GenRecon settings (baseline `outputs/unposed_genrecon[_solv3r]_matched`).
 Scene IDs after the view count restrict the run. `--stages ss,shape` weights only those stages (default all
-three). `--var-mode` picks the variance (default `weighted`). `--tau-vox --rho --softness --lam --eps --kappa` override the defaults in `visibility.Params`; use
+three). `--var-mode` picks the variance (default `weighted`); `--var-mode zero` is an ablation that sets
+$\boldsymbol\sigma^2=0$ everywhere, to measure how much the aggregator uses it. `--fusion mean` makes the
+aggregator return only the mean over the views, skipping its MLPs and the softmax (default `mlp`). `--tau-vox --rho --softness --lam --eps --kappa` override the defaults in `visibility.Params`; use
 `--tag` to give such a run its own output folder.
 
 ## Outputs
@@ -148,14 +150,9 @@ What to check before reading the mesh scores:
 | `cues.py` | root | builds the model's depth cue and the `gt` cue, reusing `evaluate_scannetpp.py`'s scan loading and depth rendering and `run_eval.py`'s `umeyama` |
 | `run.py` | root | the scene loop. It reuses `run_eval.process()` (images, VGGT-Omega or Solv3R, convert.py, GenRecon, alignment with the scan), with `inject.py` as GenRecon's entry point |
 | `variance_check.py` | root | AUROC of each variance mode for stage 1's true and false cells, from `inject.py --vis_dump` |
-| `test_visibility.py` | torch | checks $v$ on synthetic scenes, and checks that $v=\text{valid}$ is bit-identical to GenRecon's aggregators in every variance mode (fp32 and bf16) |
 
 GenRecon is not modified. The only change outside this folder is in `run_eval.py`: a `script` argument
 (defaulting to `reconstruct_scene.py`), and convert.py + GenRecon split out of `process()` as `genrecon()`.
-
-```bash
-uv run --with torch python -m unittest discover -s experiments/genrecon_occlusion_weighting -p "test_*.py" -v
-```
 
 Not part of this experiment yet: multi-point sampling per voxel, the posed (DSLR) setting, and view counts
 other than 32 (`run.py` accepts any N that has unposed runs).

@@ -25,6 +25,8 @@ import torch
 import torch.nn.functional as F
 
 VAR_MODES = ("weighted", "original", "around_vmean")
+ABLATIONS = ("zero",)  # zero: sigma^2 = 0 everywhere, to measure how much the aggregator uses it
+FUSIONS = ("mlp", "mean")  # mean: the aggregator returns mu only, skipping the per-view MLPs and the softmax
 
 
 @dataclass
@@ -36,10 +38,13 @@ class Params:
     eps: float = 1e-3
     kappa: float = 1.0  # sum of v below which we blend back to GenRecon's weights
     var_mode: str = "weighted"  # one of VAR_MODES
+    fusion: str = "mlp"  # one of FUSIONS
 
     def __post_init__(self):
-        if self.var_mode not in VAR_MODES:
-            raise ValueError(f"var_mode must be one of {VAR_MODES}, got {self.var_mode!r}")
+        if self.var_mode not in VAR_MODES + ABLATIONS:
+            raise ValueError(f"var_mode must be one of {VAR_MODES + ABLATIONS}, got {self.var_mode!r}")
+        if self.fusion not in FUSIONS:
+            raise ValueError(f"fusion must be one of {FUSIONS}, got {self.fusion!r}")
 
 
 def visibility(
@@ -103,6 +108,8 @@ def moments(feats, mask, v, mode: str, one_pass: bool):
         var = (((feats - centre) ** 2) * w).sum(dim=1, keepdim=True) / n
     if mode == "around_vmean":
         var = var + (centre - mu_v) ** 2  # sum of squares around mu_v instead of around the mean
+    if mode == "zero":
+        var = torch.zeros_like(var)
     return mu_v, var
 
 
@@ -120,6 +127,8 @@ def dense_forward(agg, feats, mask, v, p: Params, camera_emb=None):
 
     all_invalid = (~mask).all(dim=1, keepdim=True).unsqueeze(-1)
     mu, var = moments(feats, mask, v, p.var_mode, one_pass=True)  # [B, 1, V, D]
+    if p.fusion == "mean":
+        return mu.squeeze(1)  # [B, V, D]; 0 where no view is valid, as GenRecon's output there
 
     feat_W, feat_b = agg.feature_mlp[0].weight, agg.feature_mlp[0].bias
     weight_W, weight_b = agg.weight_mlp[0].weight, agg.weight_mlp[0].bias
@@ -149,6 +158,9 @@ def sparse_forward(agg, x, mask, v, p: Params):
 
     all_invalid = (~mask).all(dim=1, keepdim=True).unsqueeze(-1)
     mu, var = moments(feats, mask, v, p.var_mode, one_pass=False)  # [S, 1, D]
+    if p.fusion == "mean":
+        aggregated = x.replace(mu.squeeze(1))
+        return agg._collapse_refined_to_coarse(aggregated) if agg.refinement_factor > 1 else aggregated
 
     h_flat = torch.cat([feats, mu.expand(-1, N, -1), var.expand(-1, N, -1)], dim=-1).reshape(S * N, 3 * D)
     feats_prime = agg.feature_mlp(h_flat).reshape(S, N, D)

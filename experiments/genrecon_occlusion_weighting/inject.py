@@ -45,7 +45,7 @@ class Visibility:
     def __init__(self, args, out: Path):
         self.args, self.out = args, out
         self.p = vis.Params(args.vis_tau_vox, args.vis_rho, args.vis_softness, args.vis_lam, args.vis_eps,
-                            args.vis_kappa, args.vis_var_mode)
+                            args.vis_kappa, args.vis_var_mode, args.vis_fusion)
         self.stages = set(args.vis_stages.split(","))
         self.cues = None  # loaded on first use, after get_images has written cameras.json
         self.stage = None
@@ -199,7 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vis_lam", type=float, default=d.lam)
     p.add_argument("--vis_eps", type=float, default=d.eps)
     p.add_argument("--vis_kappa", type=float, default=d.kappa)
-    p.add_argument("--vis_var_mode", choices=vis.VAR_MODES, default=d.var_mode, help="variance the aggregator gets")
+    p.add_argument("--vis_var_mode", choices=vis.VAR_MODES + vis.ABLATIONS, default=d.var_mode, help="variance the aggregator gets")
+    p.add_argument("--vis_fusion", choices=vis.FUSIONS, default=d.fusion, help="mean: aggregator output = mu, no MLPs")
     p.add_argument("--vis_dump", type=Path, help="write stage 1's per-cell variances here and stop (variance_check.py)")
     return p
 

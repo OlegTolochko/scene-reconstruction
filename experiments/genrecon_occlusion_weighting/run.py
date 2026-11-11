@@ -28,7 +28,7 @@ sys.path.insert(0, str(HERE))
 import cues  # noqa: E402
 import run_eval  # noqa: E402
 
-OPTIONS = ("stages", "var_mode", "tau_vox", "rho", "softness", "lam", "eps", "kappa")  # passed on as inject.py's --vis_*
+OPTIONS = ("stages", "var_mode", "fusion", "tau_vox", "rho", "softness", "lam", "eps", "kappa")  # passed on as inject.py's --vis_*
 
 
 def main():
@@ -40,9 +40,11 @@ def main():
     parser.add_argument("--matched", action="store_true", help="GenRecon settings matched to the baseline")
     parser.add_argument("--tag", help="suffix for the output folder, e.g. for a parameter sweep")
     parser.add_argument("--stages", help="subset of ss,shape,tex to weight (default: all)")
-    parser.add_argument("--var-mode", dest="var_mode", choices=("weighted", "original", "around_vmean"),
+    parser.add_argument("--var-mode", dest="var_mode", choices=("weighted", "original", "around_vmean", "zero"),
                         help="variance the aggregator gets (visibility.py, default: weighted)")
-    for name in OPTIONS[2:]:
+    parser.add_argument("--fusion", choices=("mlp", "mean"),
+                        help="mean: the aggregator returns the mean over the views only, skipping its MLPs (default: mlp)")
+    for name in OPTIONS[3:]:
         parser.add_argument(f"--{name.replace('_', '-')}", dest=name, type=float)
     args = parser.parse_args()
 
