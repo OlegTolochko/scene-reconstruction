@@ -13,6 +13,10 @@ From papers/GenRecon, in GenRecon's env:
 
 --control trains the same model with all cues set to 0: the cue layers then get no gradient, so this is the
 "finetuned without cues" control. Everything else is train.py's arguments.
+
+Opt-in, in the config: models.denoiser.cues.extra = ["footprint", "similarity"] adds those cues (cues.py), and
+dataset.args.cue_noise = {"view_scale": s, "field": s, "grid": [gy, gx]} perturbs the cue depth (not the latents
+or the cameras) by a per-view scale and a smooth multiplicative field, to mimic real-image depth errors.
 """
 
 import json
@@ -22,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 HERE = Path(__file__).resolve().parent
 GENRECON = HERE.parents[1] / "papers/GenRecon"
@@ -57,8 +62,9 @@ class CueRoomSparseStructureLatent(RoomCameraConditionedSparseStructureLatent):
     true cameras are replaced by the cue's (crop applied), so training sees the cameras of the test-time setting.
     """
 
-    def __init__(self, roots, *, cue_cameras: bool = True, **kwargs):
+    def __init__(self, roots, *, cue_cameras: bool = True, cue_noise: dict | None = None, **kwargs):
         self.cue_cameras = cue_cameras
+        self.cue_noise = cue_noise
         super().__init__(roots, **kwargs)
 
     def filter_metadata(self, metadata):
@@ -95,6 +101,8 @@ class CueRoomSparseStructureLatent(RoomCameraConditionedSparseStructureLatent):
         scale = float(torch.linalg.det(M[:3, :3]).abs() ** (1 / 3))  # room units -> chunk units
         depth = torch.stack([torch.from_numpy(m["depth"].astype(np.float32)) for m in maps]) * scale
         conf = torch.stack([torch.from_numpy(m["conf"].astype(np.float32)) for m in maps])
+        if self.cue_noise:
+            depth = perturb_depth(depth, **self.cue_noise)
 
         if self.cue_cameras:
             # The parent's crop maps the full-image K to the crop's K per axis as f -> s f, c -> s c + o.
@@ -117,6 +125,17 @@ class CueRoomSparseStructureLatent(RoomCameraConditionedSparseStructureLatent):
         return pack
 
 
+def perturb_depth(depth: torch.Tensor, view_scale: float = 0.0, field: float = 0.0, grid=(4, 6)) -> torch.Tensor:
+    """depth [n, H, W] * exp(per-view N(0, view_scale) + a bilinear field from a grid of N(0, field)).
+    torch's RNG, which the DataLoader seeds differently in every worker."""
+    n, H, W = depth.shape
+    log = view_scale * torch.randn(n, 1, 1)
+    if field > 0:
+        g = field * torch.randn(n, 1, *grid)
+        log = log + F.interpolate(g, size=(H, W), mode="bilinear", align_corners=True)[:, 0]
+    return depth * torch.exp(log)  # unknown depth (<= 0, non-finite) stays unknown
+
+
 class CueFlowMatchingCFGTrainer(CameraConditionedFlowMatchingCFGTrainer):
     """Sets the aggregator's cues from the batch before GenRecon's own conditioning runs."""
 
@@ -125,8 +144,10 @@ class CueFlowMatchingCFGTrainer(CameraConditionedFlowMatchingCFGTrainer):
         self.use_cues = os.environ.get("CUE_CONTROL") != "1"
         super().__init__(*args, **kwargs)
         if self.is_master:
+            agg = self.models["denoiser"].aggregator
             with open(os.path.join(self.output_dir, "cues.json"), "w") as f:
-                json.dump({"use_cues": self.use_cues, "conf_mean": conf_mean, "conf_std": conf_std}, f, indent=4)
+                json.dump({"use_cues": self.use_cues, "conf_mean": conf_mean, "conf_std": conf_std,
+                           "extra_cues": list(getattr(agg, "extra_cues", ()))}, f, indent=4)
             print(f"Depth cues: {'on' if self.use_cues else 'off (control)'}")
 
     def _set_cues(self, x_0, cond_batch_idx, cue_depth, cue_conf, cue_K, cue_extrinsics):
@@ -141,6 +162,7 @@ class CueFlowMatchingCFGTrainer(CameraConditionedFlowMatchingCFGTrainer):
         cues = cue_lib.compute_cues(points, sl(cue_extrinsics), sl(cue_K), sl(cue_depth), sl(cue_conf), voxel,
                                     self.conf_mean, self.conf_std)
         model.aggregator.cues = cues if self.use_cues else torch.zeros_like(cues)
+        model.aggregator.cues_enabled = self.use_cues  # also zeroes the extra cues
 
     def training_losses(self, x_0, cond_batch_idx=None, cue_depth=None, cue_conf=None, cue_K=None,
                         cue_extrinsics=None, **kwargs):
@@ -169,7 +191,10 @@ def build_single_model(model_cfg):
     if cfg is None:
         return model
     report = load_state_dict_flexible(model, cfg["init_ckpt"])
-    cue_lib.add_cue_layers(model.aggregator)
+    extra = cfg.get("extra", [])
+    cue_lib.add_cue_layers(model.aggregator, extra)
+    if "footprint" in extra:
+        add_footprint_hook(model)
     missing = report["missing_key_count"]
     assert missing == 0, f"{missing} parameters not in {cfg['init_ckpt']}: {report['missing_key_head']}"
     train = tuple(cfg.get("train", ["aggregator."]))
@@ -178,6 +203,20 @@ def build_single_model(model_cfg):
     print(f"Loaded {cfg['init_ckpt']}; training {sum(p.numel() for p in model.parameters() if p.requires_grad):,} "
           f"parameters under {train}")
     return model
+
+
+def add_footprint_hook(model):
+    """Sets the aggregator's footprint cue from the cameras the dense Projection projects the features with."""
+    proj, agg = model.projection, model.aggregator
+    points = proj.coords_homg[:, :3]
+    voxel = 1.0 / round(points.shape[0] ** (1 / 3))  # the grid spans the unit chunk cube
+
+    def hook(module, args):
+        _, extrinsics, intrinsics = args[:3]
+        agg.footprint = cue_lib.footprint_cue(points.to(extrinsics.device), extrinsics, intrinsics, voxel,
+                                              proj.img_patch_res)
+
+    proj.register_forward_pre_hook(hook)
 
 
 model_wrapper_utils.build_single_model = build_single_model

@@ -56,11 +56,17 @@ def main():
     src.add_argument("--run", type=Path, help="train.py output_dir")
     src.add_argument("--zero-init", action="store_true", help="GenRecon's aggregator + zero cue layers")
     ap.add_argument("--step", type=int, help="checkpoint step (default: the last)")
+    ap.add_argument("--extra", nargs="*", default=[], help="with --zero-init: extra cues (inject.py --cue_extra)")
+    ap.add_argument("--cue-off", action="store_true", help="with --run: all cues 0 at test time (inject.py --cue_off)")
     args = ap.parse_args()
 
     inputs = ROOT / f"data/scannetpp/eval_inputs/{args.views}views"
     scenes = args.scenes or sorted(p.name for p in inputs.iterdir())
     source = ["--cue_zero_init"] if args.zero_init else ["--cue_run", args.run.resolve()]
+    if args.cue_off:
+        source += ["--cue_off"]
+    if args.extra:
+        source += ["--cue_extra", *args.extra]
     if args.step:
         source += ["--cue_step", args.step]
     for scene in scenes:

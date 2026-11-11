@@ -100,6 +100,8 @@ def main():
     ap.add_argument("--ema", type=float, default=0.999)
     ap.add_argument("--i-val", type=int, default=250)
     ap.add_argument("--i-save", type=int, default=500)
+    ap.add_argument("--extra-cues", nargs="*", default=[], help="cues.py EXTRA_CUES, e.g. footprint similarity")
+    ap.add_argument("--cue-noise", type=json.loads, help='e.g. \'{"view_scale": 0.025, "field": 0.03}\'')
     args = ap.parse_args()
 
     train, train_rooms = data_dirs(args.train, args.name, "train", args.cues, args.latents)
@@ -111,15 +113,25 @@ def main():
 
     cfg = json.loads(args.config.read_text())
     t = cfg["trainer"]["args"]
+    # GenRecon's DataLoader drops the last incomplete batch and cycles forever: with fewer training chunks
+    # than one batch it never yields one, and the run hangs silently instead of failing.
+    n_train = sum(sum(1 for _ in open(Path(v["depth_cues"]) / "metadata.csv")) - 1 for v in train.values())
+    if n_train < t["batch_size_per_gpu"]:
+        raise SystemExit(f"{n_train} training chunks, fewer than one batch of {t['batch_size_per_gpu']}")
     t.update(max_steps=args.max_steps, i_val=args.i_val, i_save=args.i_save, i_sample=10**9,
              ema_rate=[args.ema], conf_mean=mean, conf_std=std)
     t["optimizer"]["args"]["lr"]["new"] = args.lr
     t["lr_scheduler"]["args"]["warmup_steps"] = args.warmup
+    if args.extra_cues:
+        cfg["models"]["denoiser"]["cues"]["extra"] = args.extra_cues
+    if args.cue_noise:
+        cfg["dataset"]["args"]["cue_noise"] = args.cue_noise
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "config.json").write_text(json.dumps(cfg, indent=4))
     (args.out / "data_dir.json").write_text(json.dumps(train))
     (args.out / "val_data_dir.json").write_text(json.dumps(val))
-    info = {"train": train_rooms, "val": val_rooms, "latents": args.latents, "conf_mean": mean, "conf_std": std,
+    info = {"train": train_rooms, "val": val_rooms, "latents": args.latents, "extra_cues": args.extra_cues,
+            "cue_noise": args.cue_noise, "conf_mean": mean, "conf_std": std,
             "chunks": {k: sum(1 for _ in open(Path(v["depth_cues"]) / "metadata.csv")) - 1
                        for k, v in {**train, **{f"val_{k}": v for k, v in val.items()}}.items()}}
     (args.out / "rooms.json").write_text(json.dumps(info, indent=2))

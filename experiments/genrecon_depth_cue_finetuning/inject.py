@@ -13,7 +13,8 @@ DEPTH.npz (run_scannetpp.py) holds one depth map per image of the scene: names, 
 [S, H, W] (the model's raw confidence) and K [S, 3, 3] normalised to the full image, in the units of
 GenRecon's cameras. RUN_DIR is a train.py output_dir: its cues.json gives use_cues and the confidence
 standardisation, ckpts/ the aggregator (EMA weights by default). With use_cues false (the control) the cues
-are 0. --cue_zero_init uses GenRecon's aggregator with zero cue layers, which must reproduce GenRecon exactly.
+are 0. --cue_zero_init uses GenRecon's aggregator with zero cue layers, which must reproduce GenRecon exactly
+(--cue_extra footprint similarity adds the extra cues of cues.py to it; with --cue_run they come from cues.json).
 """
 
 import argparse
@@ -46,21 +47,26 @@ class CueState:
         self.active = False
         if args.cue_zero_init:
             self.use_cues, self.conf_mean, self.conf_std, self.ckpt = True, 0.0, 1.0, None
+            self.extra = tuple(args.cue_extra)
         else:
             info = json.loads((args.cue_run / "cues.json").read_text())
             self.use_cues, self.conf_mean, self.conf_std = info["use_cues"], info["conf_mean"], info["conf_std"]
             self.ckpt = checkpoint(args.cue_run, args.cue_step, not args.cue_no_ema)
+            self.extra = tuple(info.get("extra_cues", ()))
+            if args.cue_off:  # the trained aggregator with all cues 0: how much does the model rely on them?
+                self.use_cues = False
 
     def setup(self, flow_model, device):
         if self.model is flow_model:
             return
-        agg = cue_lib.add_cue_layers(flow_model.aggregator)
+        agg = cue_lib.add_cue_layers(flow_model.aggregator, self.extra)
+        agg.cues_enabled = self.use_cues
         if self.ckpt is not None:
             state = torch.load(self.ckpt, map_location="cpu", weights_only=True)
             sub = {k.removeprefix("aggregator."): v for k, v in state.items() if k.startswith("aggregator.")}
             agg.load_state_dict(sub, strict=True)  # every aggregator weight, the cue layers included
         norm = {n: round(float(p.norm()), 4) for n, p in agg.named_parameters() if n.startswith("cue_")}
-        print(f"[cues] checkpoint {self.ckpt}, use_cues {self.use_cues}, conf ({self.conf_mean:.2f}, "
+        print(f"[cues] checkpoint {self.ckpt}, use_cues {self.use_cues}, extra {self.extra}, conf ({self.conf_mean:.2f}, "
               f"{self.conf_std:.2f}), cue layer norms {norm}", flush=True)
 
         # Scene views in GenRecon's order; both square crops of an image share its img_path, and the depth
@@ -80,7 +86,7 @@ class CueState:
         self.stats = {"pairs": 0, "known": 0, "occluded": 0}
         print(f"[cues] {len(views)} views, voxel {self.voxel:.4f} camera units", flush=True)
 
-    def set_cues(self, points, extrinsics):
+    def set_cues(self, points, extrinsics, intrinsics, patch_res):
         m = self.maps
         cues = cue_lib.compute_cues(points, extrinsics, m["K"], m["depth"], m["conf"], self.voxel,
                                     self.conf_mean, self.conf_std)  # [1, N, V, 4]
@@ -89,6 +95,10 @@ class CueState:
         self.stats["known"] += int(known.sum())
         self.stats["occluded"] += int((known & (cues[..., 0] > 1)).sum())  # > 1 voxel behind the observed depth
         self.model.aggregator.cues = cues if self.use_cues else torch.zeros_like(cues)
+        if "footprint" in self.extra:
+            # intrinsics: of the crops the features come from, unlike the depth maps' m["K"]
+            self.model.aggregator.footprint = cue_lib.footprint_cue(points, extrinsics, intrinsics, self.voxel,
+                                                                    patch_res)
 
 
 def install(state: CueState):
@@ -105,6 +115,7 @@ def install(state: CueState):
         finally:
             state.active = False
             flow_model.aggregator.cues = None
+            flow_model.aggregator.footprint = None
             (state.out / "cue_stats.json").write_text(json.dumps(state.stats, indent=2))
 
     project = fs.project_features_on_points
@@ -112,7 +123,7 @@ def install(state: CueState):
     def project_with_cues(proj, points, cond, extrinsics, intrinsics, eps=1e-6):
         out = project(proj, points, cond, extrinsics, intrinsics, eps=eps)
         if state.active:
-            state.set_cues(points, extrinsics)
+            state.set_cues(points, extrinsics, intrinsics, proj.img_patch_res)
         return out
 
     P._build_global_dense_cond = build_with_cues
@@ -125,7 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cue_run", type=Path, help="train.py output_dir to load the aggregator from")
     p.add_argument("--cue_step", type=int, help="checkpoint step (default: the last)")
     p.add_argument("--cue_no_ema", action="store_true", help="the raw weights instead of the EMA")
+    p.add_argument("--cue_off", action="store_true", help="with --cue_run: set all cues to 0 at test time")
     p.add_argument("--cue_zero_init", action="store_true", help="GenRecon's aggregator + zero cue layers")
+    p.add_argument("--cue_extra", nargs="*", default=[], choices=cue_lib.EXTRA_CUES,
+                   help="with --cue_zero_init: extra cues for the zero cue layers")
     return p
 
 
@@ -133,6 +147,8 @@ def main():
     args, rest = build_parser().parse_known_args(sys.argv[1:])
     if args.cue_zero_init == (args.cue_run is not None):
         raise SystemExit("give exactly one of --cue_run and --cue_zero_init")
+    if args.cue_extra and not args.cue_zero_init:
+        raise SystemExit("--cue_extra only with --cue_zero_init (a run's extra cues come from its cues.json)")
     sys.argv = [sys.argv[0], *rest]
     out = Path(reconstruct_scene.build_parser().parse_args(rest).output_path)
     out.mkdir(parents=True, exist_ok=True)
