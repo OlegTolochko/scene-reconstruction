@@ -83,9 +83,13 @@ def evaluate(scene_out, scene_in):
     C_p = np.stack([pred_by_index[f"{i:04d}.png"][1] for i in range(len(names))])
     R_g = np.stack([gt[n][0] for n in names])
     C_g = np.stack([gt[n][1] for n in names])
+    return pose_metrics(R_p, C_p, R_g, C_g)
 
+
+def pose_metrics(R_p, C_p, R_g, C_g):
+    """Metrics of predicted world-to-camera rotations R_p (N, 3, 3) and camera centres C_p (N, 3) against the true ones."""
     # Pairwise errors over all ordered pairs i != j
-    i, j = np.where(~np.eye(len(names), dtype=bool))
+    i, j = np.where(~np.eye(len(R_p), dtype=bool))
     rel_p = R_p[j] @ R_p[i].transpose(0, 2, 1)
     rel_g = R_g[j] @ R_g[i].transpose(0, 2, 1)
     rre = angle_deg(rel_p @ rel_g.transpose(0, 2, 1))
@@ -103,7 +107,7 @@ def evaluate(scene_out, scene_in):
     rot = angle_deg(R_g @ R @ R_p.transpose(0, 2, 1))
 
     return {
-        "views": len(names),
+        "views": len(R_p),
         "auc30": auc30,
         "rre_deg_median": float(np.median(rre)),
         "rte_deg_median": float(np.median(rte)),
