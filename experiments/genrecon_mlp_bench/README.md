@@ -2,8 +2,8 @@
 
 GenRecon's multi-view aggregator (`papers/GenRecon/genrecon/modules/cond_3D/`) never sees depth. This bench
 finetunes variants of it that get depth cues from Solv3R, and compares each with the unchanged aggregator finetuned
-the same way. A variant is one small class. One `sbatch` trains it and logs its curves to Weights & Biases next
-to the baseline's.
+the same way. A variant is one small class. One `sbatch` trains it, logs its curves to Weights & Biases next
+to the baseline's and uploads its meshes of the validation rooms.
 
 It builds on `experiments/genrecon_depth_cue_finetuning` (branch `feat/depth-cue-finetuning`): the same data, depth
 cues, cue cameras and training setup, copied here so this folder runs on its own. GenRecon is not modified.
@@ -63,6 +63,8 @@ sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1    # the baseline wi
   a run refuses to continue with other code than it started with.
 - Checkpoints hold only the aggregator (about 130 MB per saved step, with the EMA weights and the optimiser
   state), not the 1.3 B-weight model.
+- After training, the job reconstructs the bench's validation rooms with the run's aggregator (`mesh.py`) and
+  uploads the meshes. For a run that is already trained, resubmitting its command does only that.
 
 ## Read it
 
@@ -80,6 +82,13 @@ The run summary adds `val/best_mse`, `vs_genrecon/best_mse_percent` and `vs_genr
 runs of the same model differ: a variant's gain means something once it is larger than that. If a node has no
 connection, the run is logged offline and the job log prints the `wandb sync` command.
 
+Each run also has `mesh/<room>`: GenRecon's full-scene reconstruction of every validation room (in an overfitting
+bench: the rooms it trained on), with the run's final aggregator in the sparse-structure stage and released
+GenRecon for the rest. The run `genrecon_released` of the same group has the same rooms from released GenRecon,
+without any finetuning. All of them use Solv3R's cameras, the same views, chunks and seed, so the meshes of a room
+differ only by the aggregator. The uploaded meshes are simplified to 300k faces and have no ceiling (cut at
+2.4 m), so the viewer looks into the room. To compare runs, add a media panel for `mesh/<room>`.
+
 ## Files
 
 | File | Env | Role |
@@ -88,8 +97,9 @@ connection, the run is logged offline and the job log prints the `wandb sync` co
 | `aggregator.py` | torch | `Aggregator`, the registry, the depth cues |
 | `bench.py` | torch | repeatable validation, W&B, comparison with the baseline, aggregator-only checkpoints |
 | `train.py` | GenRecon | dataset with depth maps and trainer; runs GenRecon's `train.py` unchanged |
+| `mesh.py` | GenRecon | meshes of the validation rooms for a run or for released GenRecon, uploaded to W&B |
 | `setup_run.py`, `config.json`, `rooms.csv` | root | freeze a bench's rooms and settings |
-| `run.sbatch` | | the SLURM job: settings and training |
+| `run.sbatch` | | the SLURM job: settings, training and meshes |
 
 Outputs: `outputs/genrecon_mlp_bench/<bench>/<run>/` with `val.jsonl`, `summary.json`, `run.json` (variant and
-its code), `ckpts/`, GenRecon's `log.txt` and `tb_logs/`.
+its code), `ckpts/`, `meshes/<room>/mesh.glb`, GenRecon's `log.txt` and `tb_logs/`.

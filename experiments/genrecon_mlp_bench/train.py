@@ -133,7 +133,11 @@ class DepthRoomSparseStructureLatent(PairedItemsMixin, RoomCameraConditionedSpar
         pack["cue_depth"] = pad(depth.half())  # padded views: depth 0 = unknown
         pack["cue_conf"] = pad(conf.half())
         pack["cue_K"] = pad(K)
-        pack["cue_extrinsics"] = pad(w2c)
+        # chunk_w2c gives camera coordinates in room units (M's scale is inverted with it). The cue depth and
+        # the voxel size are in chunk units, so the cue cameras are scaled to chunk units too.
+        cue_w2c = w2c.clone()
+        cue_w2c[:, :3] *= scale
+        pack["cue_extrinsics"] = pad(cue_w2c)
         return pack
 
 

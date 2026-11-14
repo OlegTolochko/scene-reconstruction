@@ -7,8 +7,9 @@
 #SBATCH --time=06:00:00
 #SBATCH --output=experiments/genrecon_mlp_bench/mlp-bench-%j.log
 #
-# Finetunes one aggregator variant (variants.py) and logs it to Weights & Biases. Each job trains only the
-# variant it is given. From the repo root:
+# Finetunes one aggregator variant (variants.py) and logs it to Weights & Biases, then reconstructs the bench's
+# validation rooms with it (mesh.py) and uploads the meshes to the same W&B run. Each job trains only the variant
+# it is given. From the repo root:
 #
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the baseline: GenRecon's unchanged aggregator
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_inputs      # that variant alone
@@ -16,6 +17,7 @@
 #
 # The baseline is the variant `genrecon`. A variant logs its validation loss relative to the baseline
 # (vs_genrecon/val_mse_percent) once the baseline of the same bench has been trained.
+# The first job of a bench to get there also uploads the meshes of released GenRecon (the W&B run genrecon_released).
 # Every step skips what is done: resubmitting the same command after the 6 hours continues where it stopped.
 set -euo pipefail
 
@@ -86,4 +88,21 @@ train() {
     return $status
 }
 
+# meshes [RUN]: the meshes of the bench's validation rooms, on W&B. With RUN: reconstructed with that run's
+# aggregator. Without: released GenRecon, once per bench. Rooms that have a mesh are skipped.
+meshes() {
+    local name=${1:-genrecon_released}
+    if [ -f "$OUT/$name/meshes/UPLOADED" ]; then echo "$name: meshes already uploaded"; return 0; fi
+    mkdir -p "$OUT/$name"
+    exec 7>"$OUT/$name/.meshes.lock"
+    if ! flock -n 7; then echo "$name: another job is making its meshes"; return 0; fi
+    echo "=== $(date +%T) meshes of $name"
+    local status=0
+    (cd "$REPO/papers/GenRecon" && "$PY" "$HERE/mesh.py" --bench "$OUT" ${1:+--run "$1"}) || status=$?
+    flock -u 7
+    return $status
+}
+
 train "$VARIANT" "$SEED"
+meshes "$(run_name "$VARIANT" "$SEED")"
+meshes
