@@ -9,7 +9,7 @@ scan only has the wall's inner surface, 1 cell thick. Per chunk, this
      also holds a kept triangle (the inner face, furniture, a door) stays,
   4. encodes the thinned occupancy with the same sparse-structure encoder as get_slats.py.
 A wrong frame shows up in step 2: the cells the samples reach must match the occupancy (IoU in thin_stats.json;
-the script stops below --min-iou). The chunk frame is tried as is and with get_slats.py's +-90 deg axis fixes.
+below --min-iou the chunk is kept unthinned, with "thinned": false). The chunk frame is tried as is and with get_slats.py's +-90 deg axis fixes.
 
 Writes <root>/ss_latents/<ss_name>_thinwalls/<chunk>.npz (z, as get_slats.py) and metadata.csv
 (sha256, ss_latent_encoded), so train.py uses it via the "ss_latent" of --data_dir, and thin_stats.json.
@@ -179,10 +179,16 @@ def main():
                 if best is None or iou > best[1]:
                     best = (name, iou, pts, tri, full)
             name, iou, pts, tri, full = best
-            if iou < args.min_iou:
-                raise RuntimeError(f"{sha}: sampled mesh matches the occupancy with IoU {iou:.3f} at best ({name})")
-            kept = cells(pts[keep[tri]])
-            dropped = np.setdiff1d(np.intersect1d(occ, full), kept)  # occupied, reached only by dropped triangles
+            thinned = iou >= args.min_iou
+            if thinned:
+                kept = cells(pts[keep[tri]])
+                dropped = np.setdiff1d(np.intersect1d(occ, full), kept)  # occupied, reached only by dropped triangles
+            else:
+                # Mesh and occupancy disagree, so the frame may be wrong and thinning could remove the wrong
+                # cells: keep this chunk unthinned (re-encoded as is) instead of stopping the whole root.
+                print(f"WARNING {sha}: sampled mesh matches the occupancy with IoU {iou:.3f} at best ({name}); "
+                      "kept unthinned", flush=True)
+                dropped = occ[:0]
             thin = np.setdiff1d(occ, dropped)
 
             grid = torch.zeros(R**3, dtype=torch.float32, device="cuda")
@@ -194,7 +200,8 @@ def main():
             dec_thin = decode(decoder, z[0])
             dec_orig = decode(decoder, torch.from_numpy(
                 np.load(args.root / "ss_latents" / SS_NAME / f"{sha}.npz")["z"]).cuda())
-            stats[sha] = {"axis": name, "iou_mesh_vs_occupancy": round(iou, 4), "cells": int(len(occ)),
+            stats[sha] = {"axis": name, "thinned": bool(thinned), "iou_mesh_vs_occupancy": round(iou, 4),
+                          "cells": int(len(occ)),
                           "cells_thin": int(len(thin)), "dropped_share": round(len(dropped) / max(len(occ), 1), 4),
                           "iou_decoded_vs_occupancy": round(set_iou(dec_orig, occ), 4),
                           "iou_decoded_thin_vs_thin": round(set_iou(dec_thin, thin), 4)}
