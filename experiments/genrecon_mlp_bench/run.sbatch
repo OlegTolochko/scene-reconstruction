@@ -29,8 +29,10 @@ BENCH=${BENCH:-2026-11-14_overfit10}
 # with fixed timesteps and noise, so its curve is the clean overfitting curve (the training loss is noisy).
 # Rooms per data root: ROOT:@split (a split of rooms.csv), ROOT:all or ROOT:room,room,... Several roots are
 # separated by spaces. Only read when a bench is first set up.
-SAGE=${SAGE:-/rhome/pr26rb06/scene-reconstruction/data/SAGE10k}
-TRAIN=${TRAIN:-$SAGE:@overfit}
+# The 10 rooms are spread over three prepared roots (3 in SAGE10k_cues, 4 in _b, 3 in _c); each root
+# contributes the rooms of the split that it has.
+DATA=${DATA:-/rhome/pr26rb06/scene-reconstruction/data}
+TRAIN=${TRAIN:-$DATA/SAGE10k_cues:@overfit $DATA/SAGE10k_cues_b:@overfit $DATA/SAGE10k_cues_c:@overfit}
 VAL=${VAL:-$TRAIN}
 CUES=${CUES:-depth_cues_solv3r}   # the cue folder inside each root; depth_cues_true is the true depth
 

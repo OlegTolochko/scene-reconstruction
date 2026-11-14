@@ -47,7 +47,7 @@ Included: `depth_inputs` (the cues as inputs of both MLPs, variant A of the othe
 ## Run it
 
 Once, on the cluster: `uv pip install --python papers/GenRecon/.venv/bin/python wandb`, then
-`papers/GenRecon/.venv/bin/wandb login`, and check the settings at the top of `run.sbatch` (`SAGE`, `BENCH`).
+`papers/GenRecon/.venv/bin/wandb login`, and check the settings at the top of `run.sbatch` (`DATA`, `TRAIN`, `BENCH`).
 Then, from the repo root:
 
 ```bash
