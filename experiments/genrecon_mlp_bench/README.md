@@ -35,7 +35,7 @@ observed depth, in voxels, clipped to ±8; below 0 is free space, above 0 is occ
 relative to the observed depth, ±0.5), `CONFIDENCE` (Solv3R's, standardised) and `KNOWN`. By default the whole
 aggregator trains and the rest of GenRecon is frozen; `train_only = ("gate.",)` restricts it to those parameters.
 
-Try it in seconds, without a GPU (float32, bfloat16 autocast with a backward pass, bfloat16 weights):
+Try it in seconds, without a GPU (float32, and bfloat16 autocast with a backward pass):
 
 ```bash
 uv run --with torch experiments/genrecon_mlp_bench/variants.py my_idea
@@ -81,14 +81,6 @@ The run summary adds `val/best_mse`, `vs_genrecon/best_mse_percent` and `vs_genr
 runs of the same model differ: a variant's gain means something once it is larger than that. If a node has no
 connection, the run is logged offline and the job log prints the `wandb sync` command.
 
-## ScanNet++ meshes
-
-Off by default. With `SCANNETPP_VIEWS=32` in `run.sbatch` (or `sbatch --export=ALL,SCANNETPP_VIEWS=32 ...`),
-the job continues after training: it reconstructs the 32-view eval scenes with the run's aggregator in the sparse-structure stage (Solv3R cameras and
-depth, as `unposed_genrecon/run_eval.py 32 --model solv3r`, which has to have run), evaluates them with
-`scripts/evaluate_scannetpp.py` and adds the means to the W&B run as `scannetpp_32views/<metric>`. Released
-GenRecon's meshes to compare with are `outputs/unposed_genrecon_solv3r/32views`.
-
 ## Files
 
 | File | Env | Role |
@@ -98,11 +90,7 @@ GenRecon's meshes to compare with are `outputs/unposed_genrecon_solv3r/32views`.
 | `bench.py` | torch | repeatable validation, W&B, comparison with the baseline, aggregator-only checkpoints |
 | `train.py` | GenRecon | dataset with depth maps and trainer; runs GenRecon's `train.py` unchanged |
 | `setup_run.py`, `config.json`, `rooms.csv` | root | freeze a bench's rooms and settings |
-| `run.sbatch` | | the SLURM job: settings, training, ScanNet++ meshes |
-| `inject.py`, `run_scannetpp.py`, `log_meshes.py` | GenRecon, root | ScanNet++ meshes of a run |
+| `run.sbatch` | | the SLURM job: settings and training |
 
 Outputs: `outputs/genrecon_mlp_bench/<bench>/<run>/` with `val.jsonl`, `summary.json`, `run.json` (variant and
-its code), `ckpts/`, GenRecon's `log.txt` and `tb_logs/`, and `scannetpp/<N>views/<scene>/`.
-
-The only change outside this folder is the `script` argument of `unposed_genrecon/run_eval.process()`, the same
-edit as on `feat/depth-cue-finetuning`.
+its code), `ckpts/`, GenRecon's `log.txt` and `tb_logs/`.

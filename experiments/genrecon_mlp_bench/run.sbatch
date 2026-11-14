@@ -8,8 +8,7 @@
 #SBATCH --output=mlp-bench-%j.log
 #
 # The whole bench for one aggregator variant (variants.py): trains the baseline if the bench has none, trains
-# the variant, logs both to Weights & Biases and, if SCANNETPP_VIEWS is set, reconstructs the ScanNet++ meshes
-# of both and adds their metrics to the W&B runs. From the repo root:
+# the variant, and logs both to Weights & Biases. From the repo root:
 #
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch my_variant        # the variant, after the baseline if needed
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the baseline alone
@@ -39,10 +38,6 @@ OUT_ROOT=${OUT_ROOT:-outputs/genrecon_mlp_bench}
 
 # W&B: the project, under the account that is logged in on the cluster (set WANDB_ENTITY for a team).
 export WANDB_PROJECT=${WANDB_PROJECT:-genrecon-mlp-bench}
-
-# ScanNet++ meshes after training: empty = off, or the number of views (32). Needs the unposed Solv3R run of
-# those views (experiments/unposed_genrecon/run_eval.py 32 --model solv3r) to compare with.
-SCANNETPP_VIEWS=${SCANNETPP_VIEWS:-}
 
 # ---- the job ----
 
@@ -89,28 +84,9 @@ train() {
     return $status
 }
 
-# meshes RUN: the ScanNet++ meshes of a finished run, their metrics, and the metrics' means in its W&B summary.
-# Scenes that already have a mesh are skipped. Returns 1 if some scenes failed.
-meshes() {
-    local dir=$OUT/$1 status=0
-    [ -f "$dir/DONE" ] || { echo "$1: not finished, no meshes"; return 0; }
-    echo "=== $(date +%T) ScanNet++ meshes of $1, $SCANNETPP_VIEWS views"
-    uv run "$HERE/run_scannetpp.py" "$SCANNETPP_VIEWS" --run "$dir" || status=$?
-    uv run scripts/evaluate_scannetpp.py "$dir/scannetpp/${SCANNETPP_VIEWS}views"
-    "$PY" "$HERE/log_meshes.py" "$dir" "$SCANNETPP_VIEWS"
-    return $status
-}
-
-RUNS=("$(run_name "$VARIANT" "$SEED")")
 if [ "$VARIANT" != genrecon ] || [ "$SEED" != 0 ]; then
     status=0
     train genrecon 0 || status=$?   # the baseline first, unless it is finished or another job has it
     [ $status = 0 ] || [ $status = 3 ] || { echo "the baseline failed (status $status)"; exit $status; }
-    RUNS=(genrecon "${RUNS[@]}")
 fi
 train "$VARIANT" "$SEED"
-
-[ -n "$SCANNETPP_VIEWS" ] || exit 0
-status=0
-for run in "${RUNS[@]}"; do meshes "$run" || status=$?; done
-exit $status

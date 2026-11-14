@@ -74,7 +74,7 @@ class Aggregator(nn.Module):
             f"the bench covers GenRecon's sparse-structure aggregator only, not one with {unsupported or 'refinement'}"
         self.channels = base.channels
         self.feature_mlp, self.weight_mlp = base.feature_mlp, base.weight_mlp  # GenRecon's weights, same names
-        self.cues = None  # set before every forward by whoever projects the features (train.py, inject.py)
+        self.cues = None  # set before every forward by the trainer (train.py)
 
     @staticmethod
     def first_layer(mlp: nn.Sequential, feats, mu, var):
@@ -116,7 +116,7 @@ class Aggregator(nn.Module):
         cues = cues.to(self.feature_mlp[0].weight.dtype)
 
         mu, var = self.statistics(feats, mask, cues)
-        mu, var = mu.to(feats.dtype), var.to(feats.dtype)  # the MLPs take one dtype (bf16 at inference)
+        mu, var = mu.to(feats.dtype), var.to(feats.dtype)  # the MLPs take one dtype
         view = self.view_features(feats, mu, var, mask, cues)
         logits = self.view_logits(feats, mu, var, mask, cues)
 
@@ -186,10 +186,9 @@ def stand_in(channels: int = 16) -> nn.Module:
 
 
 def preflight(name: str) -> str:
-    """Runs a variant on a small stand-in for GenRecon's aggregator the three ways it will be run: in float32,
-    under bfloat16 autocast with a backward pass (training), and with bfloat16 weights (reconstruction). Raises
-    on the first error, so a mistake in a variant shows up in seconds and not after the baseline has trained.
-    Returns a summary line."""
+    """Runs a variant on a small stand-in for GenRecon's aggregator: in float32, and under bfloat16 autocast with
+    a backward pass, as in training. Raises on the first error, so a mistake in a variant shows up in seconds and
+    not after the baseline has trained. Returns a summary line."""
     if name not in VARIANTS:
         raise SystemExit(f"unknown variant {name!r}; variants.py has: {', '.join(VARIANTS)}")
     torch.manual_seed(0)
@@ -215,8 +214,6 @@ def preflight(name: str) -> str:
     assert trained, f"no parameter matches train_only = {agg.train_only}"
     dead = [n for n, p in trained.items() if p.grad is None]
     assert not dead, f"these parameters are to be trained but do not affect the output: {dead}"
-    with torch.no_grad():
-        run(VARIANTS[name](stand_in().to(torch.bfloat16)).to(torch.bfloat16), feats.to(torch.bfloat16))
 
     new = [n for n, _ in agg.named_parameters() if not n.startswith(("feature_mlp.", "weight_mlp."))]
     start = "starts exactly at GenRecon" if difference == 0 else f"differs from GenRecon at the start by {difference:.1e} (relative)"
