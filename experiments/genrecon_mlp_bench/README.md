@@ -41,8 +41,7 @@ Try it in seconds, without a GPU (float32, and bfloat16 autocast with a backward
 uv run --with torch experiments/genrecon_mlp_bench/variants.py my_idea
 ```
 
-Included: `depth_inputs` (the cues as inputs of both MLPs, variant A of the other experiment), `depth_inputs_only`
-(the same, only the new layers train) and `visible_mean` (a learned weight per view in the mean and variance).
+Included: `depth_inputs` (the cues as inputs of both MLPs, variant A of the other experiment).
 
 ## Run it
 

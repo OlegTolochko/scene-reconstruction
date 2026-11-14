@@ -35,32 +35,6 @@ class DepthInputs(Aggregator):
         return self.rest(self.weight_mlp, h)
 
 
-@register("depth_inputs_only")
-class DepthInputsOnly(DepthInputs):
-    """depth_inputs where only the two new layers train and GenRecon's weights stay as released: a gain then
-    comes from the depth, not from more finetuning."""
-
-    train_only = ("cue_",)
-
-
-@register("visible_mean")
-class VisibleMean(Aggregator):
-    """A learned weight per view in the mean and variance, from the depth cues: a view that sees the voxel behind
-    a surface can count less. GenRecon's MLPs get the cleaner statistics but no depth themselves."""
-
-    def __init__(self, base):
-        super().__init__(base)
-        self.visibility = zero_linear(N_CUES, 1)
-
-    def statistics(self, feats, mask, cues):
-        v = 2 * torch.sigmoid(self.visibility(cues))  # 1 at the start, so the statistics start as GenRecon's
-        v = v.to(feats.dtype) * mask.unsqueeze(-1)  # only the views that see the voxel count
-        total = v.sum(dim=1, keepdim=True).clamp_min(1e-6)
-        mu = (feats * v).sum(dim=1, keepdim=True) / total
-        var = ((feats * feats * v).sum(dim=1, keepdim=True) / total - mu * mu).clamp_min(0)
-        return mu, var
-
-
 if __name__ == "__main__":  # python variants.py [NAME ...]: tries the named variants, or all of them
     import sys
 
