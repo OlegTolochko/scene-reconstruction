@@ -127,9 +127,13 @@ def main():
     cfg = json.loads(args.config.read_text())
     t = cfg["trainer"]["args"]
     # GenRecon's DataLoader drops the last incomplete batch and cycles forever: with fewer training chunks
-    # than one batch it never yields one, and the run hangs silently instead of failing.
-    if chunk_count(train) < t["batch_size_per_gpu"]:
-        raise SystemExit(f"{chunk_count(train)} training chunks, fewer than one batch of {t['batch_size_per_gpu']}")
+    # than one batch it would never yield one, and the run would hang. Overfitting on a few chunks: one batch
+    # is then all of them, one chunk per gradient-accumulation step.
+    n_train = chunk_count(train)
+    if n_train < t["batch_size_per_gpu"]:
+        print(f"note: {n_train} training chunks, fewer than a batch of {t['batch_size_per_gpu']}: "
+              f"the batch size of this bench is {n_train}")
+        t.update(batch_size_per_gpu=n_train, batch_split=n_train)
     t.update(conf_mean=mean, conf_std=std)
     info = {"cues": args.cues, "train": train_rooms, "val": val_rooms,
             "without_cues": {"train": train_dropped, "val": val_dropped},
