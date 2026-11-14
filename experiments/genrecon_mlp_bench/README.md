@@ -51,12 +51,14 @@ Then, from the repo root:
 
 ```bash
 sbatch experiments/genrecon_mlp_bench/run.sbatch my_idea       # that variant only
-sbatch experiments/genrecon_mlp_bench/run.sbatch               # the baseline (GenRecon finetuned as is)
-sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1    # the baseline with another training seed
+sbatch experiments/genrecon_mlp_bench/run.sbatch               # the references: the baseline and released GenRecon
+sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1    # the baseline alone, with another training seed
 ```
 
-- The baseline is the variant `genrecon`: the unchanged aggregator, finetuned on the same rooms with the same
-  settings and cameras. Submit it yourself; a variant job does not train it first.
+- A job does only what its command names. A variant job trains that variant and makes its meshes, nothing else.
+- The command without arguments makes the two references of a bench, once: the baseline (the variant `genrecon`:
+  the unchanged aggregator, finetuned on the same rooms with the same settings and cameras) and the meshes of
+  released GenRecon, without any finetuning.
 - A bench is named in `run.sbatch` (`BENCH`). Its rooms and `config.json` are frozen in its folder when it is
   first set up, so all its runs are comparable. To change steps, learning rate or rooms, give `BENCH` a new name.
 - Resubmitting a command resumes its run. Once a variant has been submitted, give a changed version a new name:

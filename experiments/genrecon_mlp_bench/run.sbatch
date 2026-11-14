@@ -8,16 +8,17 @@
 #SBATCH --output=experiments/genrecon_mlp_bench/mlp-bench-%j.log
 #
 # Finetunes one aggregator variant (variants.py) and logs it to Weights & Biases, then reconstructs the bench's
-# validation rooms with it (mesh.py) and uploads the meshes to the same W&B run. Each job trains only the variant
-# it is given. From the repo root:
+# validation rooms with it (mesh.py) and uploads the meshes to the same W&B run. A job does only what its command
+# names. From the repo root:
 #
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the baseline: GenRecon's unchanged aggregator
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the two references of a bench (below)
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_inputs      # that variant alone
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1        # ... with another training seed
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1        # the baseline alone, with another seed
 #
-# The baseline is the variant `genrecon`. A variant logs its validation loss relative to the baseline
+# Without arguments, the job makes the two references of the bench: the baseline (the variant `genrecon`,
+# GenRecon's unchanged aggregator finetuned like every variant) and the meshes of released GenRecon, without
+# any finetuning (the W&B run genrecon_released). A variant logs its validation loss relative to the baseline
 # (vs_genrecon/val_mse_percent) once the baseline of the same bench has been trained.
-# The first job of a bench to get there also uploads the meshes of released GenRecon (the W&B run genrecon_released).
 # Every step skips what is done: resubmitting the same command after the 6 hours continues where it stopped.
 set -euo pipefail
 
@@ -89,7 +90,7 @@ train() {
 }
 
 # meshes [RUN]: the meshes of the bench's validation rooms, on W&B. With RUN: reconstructed with that run's
-# aggregator. Without: released GenRecon, once per bench. Rooms that have a mesh are skipped.
+# aggregator. Without: released GenRecon. Rooms that have a mesh are skipped.
 meshes() {
     local name=${1:-genrecon_released}
     if [ -f "$OUT/$name/meshes/UPLOADED" ]; then echo "$name: meshes already uploaded"; return 0; fi
@@ -105,4 +106,4 @@ meshes() {
 
 train "$VARIANT" "$SEED"
 meshes "$(run_name "$VARIANT" "$SEED")"
-meshes
+if [ $# -eq 0 ]; then meshes; fi   # released GenRecon: only with the command without arguments
