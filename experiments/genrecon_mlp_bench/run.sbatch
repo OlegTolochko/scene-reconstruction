@@ -7,15 +7,15 @@
 #SBATCH --time=06:00:00
 #SBATCH --output=mlp-bench-%j.log
 #
-# The whole bench for one aggregator variant (variants.py): trains the baseline if the bench has none, trains
-# the variant, and logs both to Weights & Biases. From the repo root:
+# Finetunes one aggregator variant (variants.py) and logs it to Weights & Biases. Each job trains only the
+# variant it is given. From the repo root:
 #
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch my_variant        # the variant, after the baseline if needed
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the baseline alone
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the baseline: GenRecon's unchanged aggregator
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_inputs      # that variant alone
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1        # ... with another training seed
 #
-# The baseline is the variant `genrecon`: GenRecon's unchanged aggregator, finetuned on the same data. Every run
-# logs its validation loss relative to it (vs_genrecon/val_mse_percent).
+# The baseline is the variant `genrecon`. A variant logs its validation loss relative to the baseline
+# (vs_genrecon/val_mse_percent) once the baseline of the same bench has been trained.
 # Every step skips what is done: resubmitting the same command after the 6 hours continues where it stopped.
 set -euo pipefail
 
@@ -86,9 +86,4 @@ train() {
     return $status
 }
 
-if [ "$VARIANT" != genrecon ] || [ "$SEED" != 0 ]; then
-    status=0
-    train genrecon 0 || status=$?   # the baseline first, unless it is finished or another job has it
-    [ $status = 0 ] || [ $status = 3 ] || { echo "the baseline failed (status $status)"; exit $status; }
-fi
 train "$VARIANT" "$SEED"
