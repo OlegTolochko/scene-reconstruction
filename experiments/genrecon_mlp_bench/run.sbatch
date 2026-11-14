@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=06:00:00
-#SBATCH --output=mlp-bench-%j.log
+#SBATCH --output=experiments/genrecon_mlp_bench/mlp-bench-%j.log
 #
 # Finetunes one aggregator variant (variants.py) and logs it to Weights & Biases. Each job trains only the
 # variant it is given. From the repo root:
