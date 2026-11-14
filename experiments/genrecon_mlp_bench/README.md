@@ -47,7 +47,7 @@ Included: `depth_inputs` (the cues as inputs of both MLPs, variant A of the othe
 ## Run it
 
 Once, on the cluster: `uv pip install --python papers/GenRecon/.venv/bin/python wandb`, then
-`papers/GenRecon/.venv/bin/wandb login`, and set `TRAIN` and `VAL` in `settings.sh` to the prepared SAGE data.
+`papers/GenRecon/.venv/bin/wandb login`, and check the settings at the top of `run.sbatch` (`SAGE`, `BENCH`).
 Then, from the repo root:
 
 ```bash
@@ -58,7 +58,7 @@ sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1    # the baseline wi
 
 - The baseline is the variant `genrecon`: the unchanged aggregator, finetuned on the same rooms with the same
   settings and cameras. A bench has one; later jobs find it finished and skip it.
-- A bench is named in `settings.sh` (`BENCH`). Its rooms and `config.json` are frozen in its folder when it is
+- A bench is named in `run.sbatch` (`BENCH`). Its rooms and `config.json` are frozen in its folder when it is
   first set up, so all its runs are comparable. To change steps, learning rate or rooms, give `BENCH` a new name.
 - Resubmitting a command resumes its run. Once a variant has been submitted, give a changed version a new name:
   a run refuses to continue with other code than it started with.
@@ -83,11 +83,8 @@ connection, the run is logged offline and the job log prints the `wandb sync` co
 
 ## ScanNet++ meshes
 
-```bash
-sbatch experiments/genrecon_mlp_bench/meshes.sbatch my_idea    # and once: ... meshes.sbatch genrecon
-```
-
-Reconstructs the 32-view eval scenes with the run's aggregator in the sparse-structure stage (Solv3R cameras and
+Off by default. With `SCANNETPP_VIEWS=32` in `run.sbatch` (or `sbatch --export=ALL,SCANNETPP_VIEWS=32 ...`),
+the job continues after training: it reconstructs the 32-view eval scenes with the run's aggregator in the sparse-structure stage (Solv3R cameras and
 depth, as `unposed_genrecon/run_eval.py 32 --model solv3r`, which has to have run), evaluates them with
 `scripts/evaluate_scannetpp.py` and adds the means to the W&B run as `scannetpp_32views/<metric>`. Released
 GenRecon's meshes to compare with are `outputs/unposed_genrecon_solv3r/32views`.
@@ -101,8 +98,8 @@ GenRecon's meshes to compare with are `outputs/unposed_genrecon_solv3r/32views`.
 | `bench.py` | torch | repeatable validation, W&B, comparison with the baseline, aggregator-only checkpoints |
 | `train.py` | GenRecon | dataset with depth maps and trainer; runs GenRecon's `train.py` unchanged |
 | `setup_run.py`, `config.json`, `rooms.csv` | root | freeze a bench's rooms and settings |
-| `settings.sh`, `run.sbatch` | | the SLURM job for one variant |
-| `inject.py`, `run_scannetpp.py`, `log_meshes.py`, `meshes.sbatch` | GenRecon, root | ScanNet++ meshes of a run |
+| `run.sbatch` | | the SLURM job: settings, training, ScanNet++ meshes |
+| `inject.py`, `run_scannetpp.py`, `log_meshes.py` | GenRecon, root | ScanNet++ meshes of a run |
 
 Outputs: `outputs/genrecon_mlp_bench/<bench>/<run>/` with `val.jsonl`, `summary.json`, `run.json` (variant and
 its code), `ckpts/`, GenRecon's `log.txt` and `tb_logs/`, and `scannetpp/<N>views/<scene>/`.

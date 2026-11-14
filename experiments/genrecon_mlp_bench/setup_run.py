@@ -10,10 +10,10 @@ dataset filters by. Nothing is written into the data roots.
 A data root is a ROOT prepared by genrecon_depth_cue_finetuning/rooms/prepare_rooms.sh (feat/depth-cue-finetuning):
 renders_room/, crops/, ss_latents/, depth_cues_solv3r/, ... Rooms are chosen per root:
     ROOT:all            every room of the root that has depth cues
-    ROOT:@train_1       the rooms of a split in rooms.csv (train_1: 50 rooms, val_1: 10 rooms, reserve: 196)
+    ROOT:@overfit       the rooms of a split in rooms.csv (overfit: 10 rooms)
     ROOT:id,id,...      these rooms
 
-    uv run experiments/genrecon_mlp_bench/setup_run.py --out OUT --train ROOT:@train_1 --val ROOT:@val_1
+    uv run experiments/genrecon_mlp_bench/setup_run.py --out OUT --train ROOT:@overfit --val ROOT:@overfit
 
 (Adapted from genrecon_depth_cue_finetuning/make_run.py.)
 """
@@ -120,8 +120,8 @@ def main():
     train, train_rooms, train_dropped = data_dirs(args.train, out, "train", args.cues)
     val, val_rooms, val_dropped = data_dirs(args.val, out, "val", args.cues)
     overlap = {r for rs in train_rooms.values() for r in rs} & {r for rs in val_rooms.values() for r in rs}
-    if overlap:
-        raise SystemExit(f"rooms in both train and val: {sorted(overlap)}")
+    if overlap:  # allowed: an overfitting bench validates on its training rooms
+        print(f"note: {len(overlap)} rooms are in both train and val")
     mean, std = conf_stats(train)
 
     cfg = json.loads(args.config.read_text())
