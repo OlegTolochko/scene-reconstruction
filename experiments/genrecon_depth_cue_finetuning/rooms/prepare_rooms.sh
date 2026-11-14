@@ -37,19 +37,15 @@ step "latents (sparse structure at 64, shape at 1024)"
                          $PY data_toolkit_scenes/get_slats.py --root "$ROOT" --resolution_ovoxel 1024 --not_encode_tex
 step "metadata";         $PY data_toolkit_scenes/build_metadata.py SAGE --root "$ROOT"
 
-step "room meshes (with wall labels)"
+step "room meshes"
 for blend in "$ROOT"/rooms_processed/*.blend; do
     room=$(basename "$blend" .blend)
     out=$ROOT/rooms_processed/${room}_mesh.npz
     [ -f "$out" ] || [ ! -f "$ROOT/renders_room/$room/transforms.json" ] && continue
-    layout=$(ls "$ROOT"/rooms_raw/"$room"/layout_*.json | head -1)
-    "$BLENDER" -b "$blend" --python-exit-code 1 -P "$HERE/export_room_mesh.py" -- "$out" "$layout" 2>&1 \
+    "$BLENDER" -b "$blend" --python-exit-code 1 -P "$HERE/export_room_mesh.py" -- "$out" 2>&1 \
         | grep "^wrote\|Error" || { echo "$room: mesh export failed"; exit 1; }
     [ -f "$out" ] || { echo "$room: mesh export failed"; exit 1; }
 done
-
-step "thin walls (sparse-structure latents with only the room-facing side of each wall)"
-$PY "$HERE/thin_walls.py" --root "$ROOT" --vis "$ROOT/thin_walls_examples" --vis-rooms 3
 
 cd "$REPO"
 step "true depth"
