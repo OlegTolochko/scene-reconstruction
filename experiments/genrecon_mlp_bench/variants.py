@@ -17,7 +17,7 @@ import torch
 from aggregator import N_CUES, Aggregator, register, zero_linear
 
 
-@register("depth_inputs")
+@register("depth_cue_first_layer")
 class DepthInputs(Aggregator):
     """The depth cues as extra inputs of the first layer of both MLPs (variant A of genrecon_depth_cue_finetuning)."""
 
