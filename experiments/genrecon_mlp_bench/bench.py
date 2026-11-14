@@ -14,6 +14,7 @@ difference between two runs, or two steps of one run, is a paired difference.
 import functools
 import json
 import random
+import uuid
 import zlib
 from contextlib import contextmanager
 from pathlib import Path
@@ -100,7 +101,7 @@ def start_wandb(output_dir: Path, config: dict, code_dir=None):
     import wandb
 
     id_file = output_dir / "wandb_id.txt"
-    run_id = id_file.read_text().strip() if id_file.exists() else wandb.util.generate_id()
+    run_id = id_file.read_text().strip() if id_file.exists() else uuid.uuid4().hex[:8]
     kwargs = dict(name=output_dir.name, group=output_dir.parent.name, id=run_id, resume="allow", job_type="train",
                   dir=str(output_dir), config=config)
     try:
