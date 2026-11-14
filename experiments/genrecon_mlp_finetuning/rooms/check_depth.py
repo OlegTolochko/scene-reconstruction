@@ -6,7 +6,7 @@ units, Solv3R aligned by prepare_cues.py's similarity transform): median relativ
 <out>/<room>.png per room: render | true depth | Solv3R depth | relative error, for three frames.
 
 From the repo root:
-    uv run experiments/genrecon_depth_cue_finetuning/rooms/check_depth.py --base ROOT \
+    uv run experiments/genrecon_mlp_finetuning/rooms/check_depth.py --base ROOT \
         --true ROOT/depth_cues_true --solv3r ROOT/depth_cues_solv3r --out ROOT/depth_check
 """
 

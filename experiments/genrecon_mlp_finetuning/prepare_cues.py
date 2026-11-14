@@ -15,7 +15,7 @@ and <out>/metadata.csv (sha256 = the room's chunks from <base>/crops/<room>.json
 GenRecon's dataset reads from every data root. align.json per room records the alignment.
 
 Usage:
-    uv run experiments/genrecon_depth_cue_finetuning/prepare_cues.py --base data/SAGE10k \
+    uv run experiments/genrecon_mlp_finetuning/prepare_cues.py --base data/SAGE10k \
         --out data/SAGE10k/depth_cues_solv3r ROOM_solv3r.npz [...]
 """
 

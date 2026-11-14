@@ -7,8 +7,8 @@ GenRecon is not modified. This file
 and then runs papers/GenRecon/train.py unchanged, in this module's namespace (so its mp.spawn finds `main`).
 
 From papers/GenRecon, in GenRecon's env:
-    python ../../experiments/genrecon_depth_cue_finetuning/train.py \
-        --config ../../experiments/genrecon_depth_cue_finetuning/config_ss.json --output_dir OUT \
+    python ../../experiments/genrecon_mlp_finetuning/train.py \
+        --config ../../experiments/genrecon_mlp_finetuning/config_ss.json --output_dir OUT \
         --data_dir '{"sage": {"base": B, "ss_latent": L, "depth_cues": C}}' [--val_data_dir ...] [--control]
 
 --control trains the same model with all cues set to 0: the cue layers then get no gradient, so this is the

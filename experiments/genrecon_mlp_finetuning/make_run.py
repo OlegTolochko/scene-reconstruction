@@ -8,7 +8,7 @@ The confidence standardisation (conf_mean, conf_std) is pooled over the depth ma
 prepare_cues.py's align.json. Writes <out>/config.json (config_ss.json with the overrides), data_dir.json and
 val_data_dir.json for train.py's --data_dir / --val_data_dir, and rooms.json.
 
-    uv run experiments/genrecon_depth_cue_finetuning/make_run.py --name NAME --out OUT \
+    uv run experiments/genrecon_mlp_finetuning/make_run.py --name NAME --out OUT \
         --train ROOT:room,room,... [ROOT:all ...] --val ROOT:all [--max-steps 2000 ...]
 """
 

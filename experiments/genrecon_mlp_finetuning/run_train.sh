@@ -3,14 +3,14 @@
 # the last checkpoint (train.py's --load_dir defaults to --output_dir), so a chain of these covers runs longer
 # than the 6-hour limit. The first job of either arm writes the run's config with make_run.py.
 #
-#   sbatch ... experiments/genrecon_depth_cue_finetuning/run_train.sh OUT cues|control -- MAKE_RUN_ARGS
+#   sbatch ... experiments/genrecon_mlp_finetuning/run_train.sh OUT cues|control -- MAKE_RUN_ARGS
 # from the repo root. OUT holds config.json, data_dir.json, ... and the arms' output folders cues/ and control/.
 set -euo pipefail
 
 OUT=$(realpath -m "$1"); ARM=$2; shift 2
 [ "${1:-}" = "--" ] && shift
 REPO=$(pwd)
-HERE=$REPO/experiments/genrecon_depth_cue_finetuning
+HERE=$REPO/experiments/genrecon_mlp_finetuning
 mkdir -p "$OUT"
 (
     flock 9

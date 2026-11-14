@@ -5,7 +5,7 @@ small and per node on our cluster, so this sets the scripts' BLENDER_PATH to a s
 runs their main() unchanged.
 
 From papers/GenRecon, in GenRecon's env:
-    python ../../experiments/genrecon_depth_cue_finetuning/rooms/toolkit.py build_rooms --root ROOT [...]
+    python ../../experiments/genrecon_mlp_finetuning/rooms/toolkit.py build_rooms --root ROOT [...]
 """
 
 import importlib

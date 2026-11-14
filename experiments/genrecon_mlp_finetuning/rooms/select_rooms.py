@@ -12,8 +12,8 @@ sage_rooms.csv: scene_id, split, list_index (position in the sorted list of 10,0
 committed, so every run uses the same rooms.
 
 From papers/GenRecon, in GenRecon's env:
-    python ../../experiments/genrecon_depth_cue_finetuning/rooms/select_rooms.py                # list only
-    python ../../experiments/genrecon_depth_cue_finetuning/rooms/select_rooms.py \
+    python ../../experiments/genrecon_mlp_finetuning/rooms/select_rooms.py                # list only
+    python ../../experiments/genrecon_mlp_finetuning/rooms/select_rooms.py \
         --setup ROOT --splits train_1 val_1 --zips EXISTING/zips
 --setup gives ROOT/zips the zips of those splits: a symlink when the zip is already in --zips, else a download.
 ROOT then serves data_toolkit_scenes/unzip.py --root ROOT and the steps after it.

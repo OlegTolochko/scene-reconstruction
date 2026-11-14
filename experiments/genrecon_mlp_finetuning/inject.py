@@ -6,7 +6,7 @@ aggregator, and wraps project_features_on_points to set the aggregator's cues fo
 train.py's trainer does. The shape and texture stages are GenRecon's.
 
 Runs in GenRecon's environment, from papers/GenRecon (run_scannetpp.py does this):
-    .venv/bin/python ../../experiments/genrecon_depth_cue_finetuning/inject.py --cue_depth DEPTH.npz \
+    .venv/bin/python ../../experiments/genrecon_mlp_finetuning/inject.py --cue_depth DEPTH.npz \
         (--cue_run RUN_DIR [--cue_step N] | --cue_zero_init) <reconstruct_scene.py arguments>
 
 DEPTH.npz (run_scannetpp.py) holds one depth map per image of the scene: names, depth [S, H, W], conf

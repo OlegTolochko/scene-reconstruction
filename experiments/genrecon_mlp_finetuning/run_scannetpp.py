@@ -4,9 +4,9 @@ Reuses unposed_genrecon/run_eval.process() (VGGT-Omega or Solv3R, convert.py, Ge
 scan) with inject.py as GenRecon's entry point. The cue depth is the same model's depth and raw confidence,
 in the units of its cameras, written per scene to <out_root>/depth/<N>views/<scene>/<model>.npz.
 
-    uv run experiments/genrecon_depth_cue_finetuning/run_scannetpp.py 32 --name zero_init --zero-init [scene ...]
-    uv run experiments/genrecon_depth_cue_finetuning/run_scannetpp.py 32 --name overfit_cues --run RUN_DIR
-    uv run scripts/evaluate_scannetpp.py outputs/genrecon_depth_cue_finetuning/scannetpp/<model>/<name>/32views
+    uv run experiments/genrecon_mlp_finetuning/run_scannetpp.py 32 --name zero_init --zero-init [scene ...]
+    uv run experiments/genrecon_mlp_finetuning/run_scannetpp.py 32 --name overfit_cues --run RUN_DIR
+    uv run scripts/evaluate_scannetpp.py outputs/genrecon_mlp_finetuning/scannetpp/<model>/<name>/32views
 
 --model solv3r (default) uses Solv3R's cameras and depth, the setting of the training data; the baseline
 without cues is outputs/unposed_genrecon_solv3r. --zero-init must reproduce that baseline exactly.
@@ -23,7 +23,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "experiments/unposed_genrecon"))
 import run_eval  # noqa: E402
 
-OUT = ROOT / "outputs/genrecon_depth_cue_finetuning/scannetpp"
+OUT = ROOT / "outputs/genrecon_mlp_finetuning/scannetpp"
 
 
 def depth_file(n: int, scene: str, model: str) -> Path:

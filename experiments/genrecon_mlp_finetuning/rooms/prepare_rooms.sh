@@ -6,13 +6,13 @@
 # Every step skips rooms it has already done, so a rerun continues where a job stopped.
 #
 #   sbatch --partition=rtx_5090 --gres=gpu:1 --cpus-per-task=8 --mem=48G --time=06:00:00 \
-#       --output=LOG experiments/genrecon_depth_cue_finetuning/rooms/prepare_rooms.sh ROOT
+#       --output=LOG experiments/genrecon_mlp_finetuning/rooms/prepare_rooms.sh ROOT
 # from the repo root.
 set -euo pipefail
 
 ROOT=$(realpath "$1")
 REPO=$(pwd)
-HERE=$REPO/experiments/genrecon_depth_cue_finetuning/rooms
+HERE=$REPO/experiments/genrecon_mlp_finetuning/rooms
 GR=$REPO/papers/GenRecon
 PY=$GR/.venv/bin/python
 SOLV3R_PY=$REPO/papers/Solv3R/.venv/bin/python
@@ -54,7 +54,7 @@ for t in "$ROOT"/renders_room/*/transforms.json; do
     room=$(basename "$(dirname "$t")")
     [ -f "$ROOT/depth_cues_true/$room/cameras.npz" ] || todo+=("$room")
 done
-[ ${#todo[@]} -eq 0 ] || uv run experiments/genrecon_depth_cue_finetuning/rooms/true_depth.py \
+[ ${#todo[@]} -eq 0 ] || uv run experiments/genrecon_mlp_finetuning/rooms/true_depth.py \
     --base "$ROOT" --out "$ROOT/depth_cues_true" "${todo[@]}"
 
 step "Solv3R"
@@ -74,10 +74,10 @@ for f in "$ROOT"/solv3r/*_solv3r.npz; do
     room=$(basename "$f" _solv3r.npz)
     [ -f "$ROOT/depth_cues_solv3r/$room/cameras.npz" ] || todo+=("$f")
 done
-[ ${#todo[@]} -eq 0 ] || uv run experiments/genrecon_depth_cue_finetuning/prepare_cues.py \
+[ ${#todo[@]} -eq 0 ] || uv run experiments/genrecon_mlp_finetuning/prepare_cues.py \
     --base "$ROOT" --out "$ROOT/depth_cues_solv3r" "${todo[@]}"
 
 step "depth check"
-uv run experiments/genrecon_depth_cue_finetuning/rooms/check_depth.py --base "$ROOT" \
+uv run experiments/genrecon_mlp_finetuning/rooms/check_depth.py --base "$ROOT" \
     --true "$ROOT/depth_cues_true" --solv3r "$ROOT/depth_cues_solv3r" --out "$ROOT/depth_check"
 step "done"

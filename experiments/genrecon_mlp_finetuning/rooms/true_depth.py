@@ -9,7 +9,7 @@ conf = 1; float16) and <out>/metadata.csv (the rooms' chunks, depth_cues = True)
 Solv3R.
 
 From the repo root:
-    uv run experiments/genrecon_depth_cue_finetuning/rooms/true_depth.py --base ROOT --out ROOT/depth_cues_true
+    uv run experiments/genrecon_mlp_finetuning/rooms/true_depth.py --base ROOT --out ROOT/depth_cues_true
 """
 
 import argparse
