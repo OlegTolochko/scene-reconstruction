@@ -24,6 +24,7 @@ import torch
 
 BASELINE = "genrecon"  # the run folder (and variant) every other run of a bench is compared with
 STEP = "training_step"  # the x axis of every W&B chart
+CEILING_CUT = 2.4  # metres above the floor (ceiling: 2.7): uploaded meshes end there, so the viewer looks into the room
 
 
 def seed_all(seed: int, cuda: bool) -> None:

@@ -11,7 +11,8 @@ same for every run, so the meshes two runs give for a room differ only by the ag
 
 Writes <bench>/<run>/meshes/<room>/mesh.glb (GenRecon's textured GLB, as chunked_to_glb.py makes it: Y-up,
 simplified, without the ceiling, so that the viewer looks into the room) and logs the meshes to the run's W&B run
-as mesh/<room>. The reference is the run `genrecon_released` of the same W&B group. Rooms that already have a
+as mesh/<room>. The reference is the run `genrecon_released` of the same W&B group; the true rooms are the run
+`ground_truth` (ground_truth.py). Rooms that already have a
 mesh.glb are skipped; meshes/UPLOADED marks the upload.
 
 From papers/GenRecon, in GenRecon's env (run.sbatch does this after training):
@@ -33,7 +34,7 @@ sys.path[:0] = [str(GENRECON), str(HERE)]
 import aggregator as agg_lib  # noqa: E402
 import reconstruct_scene  # noqa: E402
 import variants  # noqa: E402, F401  (registers the variants)
-from bench import STEP, seed_all, start_wandb  # noqa: E402
+from bench import CEILING_CUT, STEP, seed_all, start_wandb  # noqa: E402
 from genrecon.pipelines import full_scene_images_to_3d as fs  # noqa: E402
 from inference.chunked_glb import chunked_to_glb  # noqa: E402
 from inference.get_chunks import SageGtChunker  # noqa: E402
@@ -42,7 +43,6 @@ from inference.get_images import SageImageSelecter  # noqa: E402
 REFERENCE = "genrecon_released"  # the run folder (and W&B run) of released GenRecon
 FACES = 300_000  # per uploaded mesh; GenRecon's meshes have millions, too many for the W&B viewer
 TEXTURE = 1024  # pixels, the side of each chunk's texture: about one pixel per colour voxel (5.6 mm)
-CEILING_CUT = 2.4  # metres above the floor (ceiling: 2.7); faces entirely above it are left out
 # reconstruct_scene.py's default settings (views per scene, seed, chunk overlap, occupancy threshold, ...)
 DEFAULTS = reconstruct_scene.build_parser().parse_args(["--mode", "Sage_gt", "--path", "", "--output_path", ""])
 

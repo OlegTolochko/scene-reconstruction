@@ -51,14 +51,15 @@ Then, from the repo root:
 
 ```bash
 sbatch experiments/genrecon_mlp_bench/run.sbatch my_idea       # that variant only
-sbatch experiments/genrecon_mlp_bench/run.sbatch               # the references: the baseline and released GenRecon
+sbatch experiments/genrecon_mlp_bench/run.sbatch               # the references: true rooms, released GenRecon, baseline
 sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1    # the baseline alone, with another training seed
 ```
 
 - A job does only what its command names. A variant job trains that variant and makes its meshes, nothing else.
-- The command without arguments makes the two references of a bench, once: the baseline (the variant `genrecon`:
-  the unchanged aggregator, finetuned on the same rooms with the same settings and cameras) and the meshes of
-  released GenRecon, without any finetuning.
+- The command without arguments makes the references of a bench, once and in this order: the true rooms as
+  meshes (`ground_truth.py`), the meshes of released GenRecon, without any finetuning, and the baseline (the
+  variant `genrecon`: the unchanged aggregator, finetuned on the same rooms with the same settings and cameras)
+  with its curves and its meshes. If one of the first two fails, the job goes on and ends with status 1.
 - A bench is named in `run.sbatch` (`BENCH`). Its rooms and `config.json` are frozen in its folder when it is
   first set up, so all its runs are comparable. To change steps, learning rate or rooms, give `BENCH` a new name.
 - Resubmitting a command resumes its run. Once a variant has been submitted, give a changed version a new name:
@@ -90,8 +91,9 @@ GenRecon for the rest. The run `genrecon_released` of the same group has the sam
 without any finetuning. All of them use Solv3R's cameras, the same views, chunks and seed, so the meshes of a room
 differ only by the aggregator. The uploaded meshes are GenRecon's textured GLBs (as its `chunked_to_glb.py` makes
 them: remeshed, with the colours baked into a 1024-pixel texture per chunk), simplified to 300k faces and without
-the ceiling (cut at 2.4 m), so the viewer looks into the room. To compare runs, add a media panel for
-`mesh/<room>`.
+the ceiling (cut at 2.4 m), so the viewer looks into the room. The run `ground_truth` has the true rooms: Blender's
+export of the rooms the views were rendered from, in the same frame and with the same cut, with textures shrunk to
+1024 pixels. To compare runs, add a media panel for `mesh/<room>`.
 
 ## Files
 
@@ -102,6 +104,7 @@ the ceiling (cut at 2.4 m), so the viewer looks into the room. To compare runs, 
 | `bench.py` | torch | repeatable validation, W&B, comparison with the baseline, aggregator-only checkpoints |
 | `train.py` | GenRecon | dataset with depth maps and trainer; runs GenRecon's `train.py` unchanged |
 | `mesh.py` | GenRecon | meshes of the validation rooms for a run or for released GenRecon, uploaded to W&B |
+| `ground_truth.py`, `export_room_glb.py` | GenRecon, Blender | the true rooms as meshes, uploaded to W&B |
 | `setup_run.py`, `config.json`, `rooms.csv` | root | freeze a bench's rooms and settings |
 | `run.sbatch` | | the SLURM job: settings, training and meshes |
 

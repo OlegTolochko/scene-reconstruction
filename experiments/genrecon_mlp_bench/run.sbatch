@@ -11,14 +11,17 @@
 # validation rooms with it (mesh.py) and uploads the meshes to the same W&B run. A job does only what its command
 # names. From the repo root:
 #
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the two references of a bench (below)
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the references of a bench (below)
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_inputs      # that variant alone
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1        # the baseline alone, with another seed
 #
-# Without arguments, the job makes the two references of the bench: the baseline (the variant `genrecon`,
-# GenRecon's unchanged aggregator finetuned like every variant) and the meshes of released GenRecon, without
-# any finetuning (the W&B run genrecon_released). A variant logs its validation loss relative to the baseline
-# (vs_genrecon/val_mse_percent) once the baseline of the same bench has been trained.
+# Without arguments, the job makes the references of the bench, in this order:
+#   1. the true rooms as meshes (ground_truth.py; the W&B run ground_truth),
+#   2. the meshes of released GenRecon, without any finetuning (the W&B run genrecon_released),
+#   3. the baseline (the variant `genrecon`: GenRecon's unchanged aggregator finetuned like every variant), with
+#      its curves and its meshes.
+# A failure in 1 or 2 does not stop the job: it goes on and ends with status 1. A variant logs its validation loss
+# relative to the baseline (vs_genrecon/val_mse_percent) once the baseline of the same bench has been trained.
 # Every step skips what is done: resubmitting the same command after the 6 hours continues where it stopped.
 set -euo pipefail
 
@@ -43,6 +46,9 @@ OUT_ROOT=${OUT_ROOT:-outputs/genrecon_mlp_bench}
 
 # W&B: the project, under the account that is logged in on the cluster (set WANDB_ENTITY for a team).
 export WANDB_PROJECT=${WANDB_PROJECT:-genrecon-mlp-bench}
+
+# Blender, which writes the true rooms as meshes (ground_truth.py): the installation the rooms were prepared with.
+BLENDER=${BLENDER:-/cluster/vc17/pr26rb06/blender/blender-5.0.1-linux-x64/blender}
 
 # ---- the job ----
 
@@ -104,6 +110,24 @@ meshes() {
     return $status
 }
 
-train "$VARIANT" "$SEED"
-meshes "$(run_name "$VARIANT" "$SEED")"
-if [ $# -eq 0 ]; then meshes; fi   # released GenRecon: only with the command without arguments
+# ground_truth: the true rooms of the bench as meshes, on W&B (the run ground_truth). Needs Blender, no GPU.
+ground_truth() {
+    if [ -f "$OUT/ground_truth/meshes/UPLOADED" ]; then echo "ground_truth: meshes already uploaded"; return 0; fi
+    mkdir -p "$OUT/ground_truth"
+    exec 6>"$OUT/ground_truth/.meshes.lock"
+    if ! flock -n 6; then echo "ground_truth: another job is making its meshes"; return 0; fi
+    echo "=== $(date +%T) meshes of ground_truth"
+    local status=0
+    "$PY" "$HERE/ground_truth.py" --bench "$OUT" --blender "$BLENDER" || status=$?
+    flock -u 6
+    return $status
+}
+
+failed=0
+if [ $# -eq 0 ]; then   # the references of a bench: only with the command without arguments
+    ground_truth || { failed=1; echo "ground_truth failed: going on"; }       # 1. the true rooms
+    meshes || { failed=1; echo "genrecon_released failed: going on"; }        # 2. released GenRecon
+fi
+train "$VARIANT" "$SEED"                  # 3. (without arguments: the baseline) finetuning, with its curves,
+meshes "$(run_name "$VARIANT" "$SEED")"   #    and its meshes
+exit $failed
