@@ -1,0 +1,115 @@
+{
+    "models": {
+        "denoiser": {
+            "name": "SparseStructureFlowModel",
+            "args": {
+                "resolution": 16,
+                "in_channels": 8,
+                "out_channels": 8,
+                "model_channels": 1536,
+                "cond_channels": 1024,
+                "num_blocks": 30,
+                "num_heads": 12,
+                "mlp_ratio": 5.3334,
+                "pe_mode": "rope",
+                "share_mod": true,
+                "initialization": "scaled",
+                "qk_rms_norm": true,
+                "qk_rms_norm_cross": true,
+                "dtype": "bfloat16"
+            },
+            "lora": {
+                "r": 8,
+                "alpha": 16
+            },
+            "projection": {
+                "image_size": 512,
+                "use_camera": false,
+                "refinement_factor": 1,
+                "conv_net": false,
+                "self_attention": false
+            },
+            "cues": {
+                "init_ckpt": "checkpoints/sparse_structure/ckpts/sparse_structure.pt",
+                "train": [
+                    "aggregator."
+                ]
+            }
+        }
+    },
+    "dataset": {
+        "name": "CueRoomSparseStructureLatent",
+        "args": {
+            "min_aesthetic_score": 4.5,
+            "image_size": 512,
+            "max_num_cond_views": 16,
+            "pretrained_ss_dec": "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16",
+            "cue_cameras": true
+        }
+    },
+    "trainer": {
+        "name": "CueFlowMatchingCFGTrainer",
+        "args": {
+            "max_steps": 1000,
+            "batch_size_per_gpu": 3,
+            "batch_split": 3,
+            "num_workers_per_gpu": 2,
+            "optimizer": {
+                "name": "AdamW",
+                "args": {
+                    "lr": {
+                        "new": 0.0001
+                    },
+                    "weight_decay": {
+                        "new": 0.0
+                    },
+                    "betas": [
+                        0.9,
+                        0.95
+                    ],
+                    "eps": 1e-08
+                }
+            },
+            "lr_scheduler": {
+                "name": "LinearWarmupLRScheduler",
+                "args": {
+                    "warmup_steps": 50
+                }
+            },
+            "ema_rate": [
+                0.99
+            ],
+            "mix_precision_mode": "amp",
+            "mix_precision_dtype": "bfloat16",
+            "grad_clip": {
+                "name": "AdaptiveGradClipper",
+                "args": {
+                    "max_norm": 1.0,
+                    "clip_percentile": 95
+                }
+            },
+            "i_val": 50,
+            "i_log": 10,
+            "i_sample": 100000,
+            "i_save": 1000,
+            "p_uncond": 0.1,
+            "t_schedule": {
+                "name": "logitNormal",
+                "args": {
+                    "mean": 1.0,
+                    "std": 1.0
+                }
+            },
+            "sigma_min": 1e-05,
+            "conf_mean": 0.0,
+            "conf_std": 1.0,
+            "image_cond_model": {
+                "name": "DinoV3FeatureExtractor",
+                "args": {
+                    "model_name": "facebook/dinov3-vitl16-pretrain-lvd1689m",
+                    "image_size": 512
+                }
+            }
+        }
+    }
+}
