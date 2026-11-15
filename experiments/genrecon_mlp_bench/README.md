@@ -51,6 +51,36 @@ Included:
   its validation loss falls below its value at step 0 is due to depth alone. Compare it with its own step 0:
   `vs_genrecon/*` compares it with a baseline that does memorise.
 
+### Depth routes: where can frozen GenRecon take depth in?
+
+After the cue modulator of `genrecon_mlp_finetuning` (branch `feat/depth-cue-finetuning`), which improves the
+sparse structure on SAGE when only it trains. Its three outputs were trained together there; here each route
+runs alone. Only small cue networks train (20k to 170k weights), GenRecon's two MLPs stay frozen. The networks
+see only depth: the cues, bumps around "the voxel is on the surface this view sees", steps for in front of it
+and behind it, and their mean and maximum over the views.
+
+| Variant | Depth may |
+| --- | --- |
+| `depth_routes_all` | all three below |
+| `depth_routes_control` | the same networks without the depth values (only which views have depth) |
+| `depth_route_weights` | choose among the views: a logit offset and a weight in the mean and variance |
+| `depth_route_gate` | scale a voxel's fused feature; towards 0 is the feature of a voxel no view sees |
+| `depth_route_residual` | add a learned feature to a voxel, a direction the views' features do not have |
+
+Read them on `vs_released/val_mse_percent` (and `val/bin_<k>/mse` for the noisy timesteps, where the structure
+is decided), against the control and not against `genrecon`, which memorises. First `depth_routes_all` and
+`depth_routes_control`: without a gap between them the single routes need not run. Then the single routes: the
+claim behind the modulator is that weighting the views cannot separate a voxel in front of a wall from one on
+it, since all views give the same wall feature, so `depth_route_weights` should gain nothing and
+`depth_route_residual` most of it. Expect a few percent: in the other experiment, a validation loss 4 % lower
+went with a sparse-structure IoU of 0.52 instead of 0.41 on the overfitted room.
+
+The same with the true depth, as the limit of what the depth model can give (a bench of its own):
+
+```bash
+BENCH=2026-11-15_overfit10_true_depth CUES=depth_cues_true sbatch experiments/genrecon_mlp_bench/run.sbatch depth_routes_all
+```
+
 ## Run it
 
 Once, on the cluster: `uv pip install --python papers/GenRecon/.venv/bin/python wandb`, then
@@ -85,6 +115,7 @@ All runs of a bench are one group in the W&B project `genrecon-mlp-bench`, named
 | --- | --- |
 | `val/mse` | validation loss. Every run and step is scored on the same views, timesteps and noise, so curves can be compared directly, and all runs start at the same value (released GenRecon, before any update) |
 | `vs_genrecon/val_mse_percent` | the run's `val/mse` relative to the baseline's at the same step; below 0 is better than the baseline |
+| `vs_released/val_mse_percent` | the run's `val/mse` relative to its own step 0, released GenRecon: the chart for runs that train only cue layers |
 | `val/bin_<k>/mse` | `val/mse` for the timesteps in `[k/10, (k+1)/10)`; 1 is pure noise |
 | `loss/mse`, `status/*` | GenRecon's own training curves |
 

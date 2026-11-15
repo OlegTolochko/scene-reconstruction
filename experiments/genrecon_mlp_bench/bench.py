@@ -175,7 +175,8 @@ class BenchTrainerMixin:
     {"step", "samples", "mse", "bin_<k>/mse", ...}; bin k holds the timesteps in [k / 10, (k + 1) / 10).
 
     A run in a folder other than `genrecon` also logs vs_genrecon/val_mse_percent: its validation loss relative
-    to the baseline run next to it, at the same step. Below 0 is better than the baseline.
+    to the baseline run next to it, at the same step. Below 0 is better than the baseline. Every run logs
+    vs_released/val_mse_percent: its validation loss relative to its own step 0, released GenRecon.
     """
 
     saved_prefix = "aggregator."  # the parameters a checkpoint holds; everything that trains has to be among them
@@ -230,8 +231,11 @@ class BenchTrainerMixin:
         row = {"step": self.step, "samples": len(self.val_dataset), **flat}
         with open(self.val_path, "a") as f:
             f.write(json.dumps(row) + "\n")
-        so_far = [r["mse"] for s, r in read_val(self.val_path).items() if s <= self.step]
+        rows = read_val(self.val_path)
+        so_far = [r["mse"] for s, r in rows.items() if s <= self.step]
         self.writer.add_scalar("val/best_mse", min(so_far), self.step)
+        if 0 in rows:  # step 0 is released GenRecon, in every run
+            self.writer.add_scalar("vs_released/val_mse_percent", percent(flat["mse"], rows[0]["mse"]), self.step)
         baseline = read_val(self.baseline_dir / "val.jsonl") if self.baseline_dir else {}
         if self.step in baseline:
             self.writer.add_scalar("vs_genrecon/val_mse_percent", percent(flat["mse"], baseline[self.step]["mse"]),
@@ -256,6 +260,8 @@ class BenchTrainerMixin:
         if mine:
             best = min(mine, key=lambda s: mine[s]["mse"])
             summary.update({"val/best_mse": mine[best]["mse"], "val/best_step": best})
+            if 0 in mine:
+                summary["vs_released/best_mse_percent"] = percent(mine[best]["mse"], mine[0]["mse"])
             base = read_val(self.baseline_dir / "val.jsonl") if self.baseline_dir else {}
             if base and (self.baseline_dir / "DONE").exists():
                 base_best = min(base, key=lambda s: base[s]["mse"])
