@@ -41,7 +41,15 @@ Try it in seconds, without a GPU (float32, and bfloat16 autocast with a backward
 uv run --with torch experiments/genrecon_mlp_bench/variants.py my_idea
 ```
 
-Included: `depth_inputs` (the cues as inputs of both MLPs, variant A of the other experiment).
+Included:
+
+- `depth_cue_first_layer`: the cues as extra inputs of the first layer of both MLPs (variant A of the other
+  experiment). In the bench `2026-11-14_overfit10` its curve is the baseline's: its cue layers stayed close to zero.
+- `depth_cue_first_layer_x10`: the same with the cues times 10, which is a 10 times larger learning rate for the
+  cue layers alone.
+- `depth_cue_only_x10`: that one with only the cue layers training. Nothing else can memorise the rooms, so what
+  its validation loss falls below its value at step 0 is due to depth alone. Compare it with its own step 0:
+  `vs_genrecon/*` compares it with a baseline that does memorise.
 
 ## Run it
 

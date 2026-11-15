@@ -35,6 +35,27 @@ class DepthInputs(Aggregator):
         return self.rest(self.weight_mlp, h)
 
 
+@register("depth_cue_first_layer_x10")
+class FastDepthInputs(DepthInputs):
+    """depth_cue_first_layer with the cues times 10. The cue layers are linear, so their outputs are 10 times as
+    large, which under Adam is a 10 times larger learning rate for these layers alone."""
+
+    gain = 10.0
+
+    def view_features(self, feats, mu, var, mask, cues):
+        return super().view_features(feats, mu, var, mask, self.gain * cues)
+
+    def view_logits(self, feats, mu, var, mask, cues):
+        return super().view_logits(feats, mu, var, mask, self.gain * cues)
+
+
+@register("depth_cue_only_x10")
+class FastDepthInputsOnly(FastDepthInputs):
+    """depth_cue_first_layer_x10 with only the cue layers training."""
+
+    train_only = ("cue_",)
+
+
 if __name__ == "__main__":  # python variants.py [NAME ...]: tries the named variants, or all of them
     import sys
 

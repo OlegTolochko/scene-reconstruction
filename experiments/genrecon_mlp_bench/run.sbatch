@@ -12,7 +12,7 @@
 # names. From the repo root:
 #
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the references of a bench (below)
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_inputs      # that variant alone
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_cue_only_x10   # that variant alone
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1        # the baseline alone, with another seed
 #
 # Without arguments, the job makes the references of the bench, in this order:
