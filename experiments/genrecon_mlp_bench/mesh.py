@@ -41,7 +41,7 @@ from inference.get_chunks import SageGtChunker  # noqa: E402
 from inference.get_images import SageImageSelecter  # noqa: E402
 
 REFERENCE = "genrecon_released"  # the run folder (and W&B run) of released GenRecon
-FACES = 300_000  # per uploaded mesh; GenRecon's meshes have millions, too many for the W&B viewer
+FACES = 4_000_000  # per uploaded mesh, of GenRecon's 14 to 33 million: the W&B viewer showed meshes of this size
 TEXTURE = 1024  # pixels, the side of each chunk's texture: about one pixel per colour voxel (5.6 mm)
 # reconstruct_scene.py's default settings (views per scene, seed, chunk overlap, occupancy threshold, ...)
 DEFAULTS = reconstruct_scene.build_parser().parse_args(["--mode", "Sage_gt", "--path", "", "--output_path", ""])

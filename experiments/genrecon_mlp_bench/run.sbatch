@@ -13,30 +13,20 @@
 #
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the references of a bench (below)
 #   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_cue_only_x10   # that variant alone
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1        # the baseline alone, with another seed
 #
 # Without arguments, the job makes the references of the bench, in this order:
 #   1. the true rooms as meshes (ground_truth.py; the W&B run ground_truth),
 #   2. the meshes of released GenRecon, without any finetuning (the W&B run genrecon_released),
 #   3. the baseline (the variant `genrecon`: GenRecon's unchanged aggregator finetuned like every variant), with
 #      its curves and its meshes.
-# A failure in 1 or 2 does not stop the job: it goes on and ends with status 1. A variant logs its validation loss
-# relative to the baseline (vs_genrecon/val_mse_percent) once the baseline of the same bench has been trained.
-# Every step skips what is done: resubmitting the same command after the 6 hours continues where it stopped.
 set -euo pipefail
-
-# ---- settings (any of them can be overridden for one job: sbatch --export=ALL,BENCH=... run.sbatch ...) ----
 
 # One bench = one set of rooms and settings = one baseline. Its runs go to $OUT_ROOT/$BENCH/<run>/ and form one
 # group on W&B. A new name starts a new bench, with config.json as it is at that moment and its own baseline.
 BENCH=${BENCH:-2026-11-14_overfit10}
 
-# Overfitting: train on the 10 rooms of rooms.csv and validate on the same rooms. The validation pass scores them
-# with fixed timesteps and noise, so its curve is the clean overfitting curve (the training loss is noisy).
-# Rooms per data root: ROOT:@split (a split of rooms.csv), ROOT:all or ROOT:room,room,... Several roots are
-# separated by spaces. Only read when a bench is first set up.
-# The 10 rooms are spread over three prepared roots (3 in SAGE10k_cues, 4 in _b, 3 in _c); each root
-# contributes the rooms of the split that it has.
+# Rooms per data root: ROOT:@split (a split of rooms.csv). The 10 rooms are spread over three prepared 
+# roots (3 in SAGE10k_cues, 4 in _b, 3 in _c); each root contributes the rooms of the split that it has.
 DATA=${DATA:-/rhome/pr26rb06/scene-reconstruction/data}
 TRAIN=${TRAIN:-$DATA/SAGE10k_cues:@overfit $DATA/SAGE10k_cues_b:@overfit $DATA/SAGE10k_cues_c:@overfit}
 VAL=${VAL:-$TRAIN}
@@ -44,7 +34,7 @@ CUES=${CUES:-depth_cues_solv3r}   # the cue folder inside each root; depth_cues_
 
 OUT_ROOT=${OUT_ROOT:-outputs/genrecon_mlp_bench}
 
-# W&B: the project, under the account that is logged in on the cluster (set WANDB_ENTITY for a team).
+# W&B: the project, under the account that is logged in on the cluster.
 export WANDB_PROJECT=${WANDB_PROJECT:-genrecon-mlp-bench}
 
 # Blender, which writes the true rooms as meshes (ground_truth.py): the installation the rooms were prepared with.
