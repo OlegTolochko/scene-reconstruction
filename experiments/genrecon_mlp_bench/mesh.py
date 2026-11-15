@@ -9,10 +9,10 @@ full-scene pipeline as reconstruct_scene.py does in mode Sage_gt, with its defau
 The shape and texture stages are always released GenRecon's. Views, chunks, seed and sampler settings are the
 same for every run, so the meshes two runs give for a room differ only by the aggregator.
 
-Writes <bench>/<run>/meshes/<room>/mesh.glb (coloured, Y-up, simplified, without the ceiling, so that the viewer
-looks into the room) and logs the meshes to the run's W&B run as mesh/<room>. The reference is the run
-`genrecon_released` of the same W&B group. Rooms that already have a mesh.glb are skipped; meshes/UPLOADED marks
-the upload.
+Writes <bench>/<run>/meshes/<room>/mesh.glb (GenRecon's textured GLB, as chunked_to_glb.py makes it: Y-up,
+simplified, without the ceiling, so that the viewer looks into the room) and logs the meshes to the run's W&B run
+as mesh/<room>. The reference is the run `genrecon_released` of the same W&B group. Rooms that already have a
+mesh.glb are skipped; meshes/UPLOADED marks the upload.
 
 From papers/GenRecon, in GenRecon's env (run.sbatch does this after training):
     python ../../experiments/genrecon_mlp_bench/mesh.py --bench OUT [--run NAME]
@@ -24,9 +24,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
 import torch
-import trimesh
 
 HERE = Path(__file__).resolve().parent
 GENRECON = HERE.parents[1] / "papers/GenRecon"
@@ -37,13 +35,14 @@ import reconstruct_scene  # noqa: E402
 import variants  # noqa: E402, F401  (registers the variants)
 from bench import STEP, seed_all, start_wandb  # noqa: E402
 from genrecon.pipelines import full_scene_images_to_3d as fs  # noqa: E402
+from inference.chunked_glb import chunked_to_glb  # noqa: E402
 from inference.get_chunks import SageGtChunker  # noqa: E402
 from inference.get_images import SageImageSelecter  # noqa: E402
 
 REFERENCE = "genrecon_released"  # the run folder (and W&B run) of released GenRecon
 FACES = 300_000  # per uploaded mesh; GenRecon's meshes have millions, too many for the W&B viewer
+TEXTURE = 1024  # pixels, the side of each chunk's texture: about one pixel per colour voxel (5.6 mm)
 CEILING_CUT = 2.4  # metres above the floor (ceiling: 2.7); faces entirely above it are left out
-Z_UP_TO_Y_UP = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=float)  # GLB is Y-up: (x, y, z) -> (x, z, -y)
 # reconstruct_scene.py's default settings (views per scene, seed, chunk overlap, occupancy threshold, ...)
 DEFAULTS = reconstruct_scene.build_parser().parse_args(["--mode", "Sage_gt", "--path", "", "--output_path", ""])
 
@@ -123,7 +122,8 @@ def load_aggregator(model, run: Path) -> dict:
 
 
 def reconstruct(pipeline, base: Path, room: str, cue_dir: Path, out: Path, cues: DepthCues | None):
-    """GenRecon's mesh of a room (in the frame of chunk 0) and the transform from that frame to the room."""
+    """GenRecon's mesh of a room (in the frame of chunk 0), the transform from that frame to the room, and the
+    centres of the room's chunks [K, 3], in the room."""
     d = DEFAULTS
     scene = base / "renders_room" / room
     seed_all(d.seed, cuda=True)
@@ -137,27 +137,29 @@ def reconstruct(pipeline, base: Path, room: str, cue_dir: Path, out: Path, cues:
     mesh, _ = pipeline.run(sel, [rel_t[i] for i in sel.chunk_indices], seed=d.seed, pipeline_type=d.pipeline,
                            shape_slat_sampler_params=slat, tex_slat_sampler_params=slat,
                            occ_threshold=d.occ_threshold)
-    return mesh, m_c2o[0]
+    return mesh, m_c2o[0], torch.stack([m_c2o[i][:3, 3] for i in sel.chunk_indices])
 
 
-def write_glb(mesh, chunk_to_room: torch.Tensor, path: Path) -> int:
-    """The mesh in room coordinates with its base colour, without the ceiling, simplified to FACES faces, as a
-    Y-up GLB. Returns its number of faces."""
-    M = chunk_to_room.double().cpu().numpy()
-    vertices = mesh.vertices.detach().double().cpu().numpy() @ M[:3, :3].T + M[:3, 3]
-    faces = mesh.faces.detach().cpu().numpy().astype(np.int32)
-    colours = mesh.query_vertex_attrs()[:, mesh.layout["base_color"]].detach().double().clamp(0, 1).cpu().numpy()
-    below = (vertices[:, 2] < CEILING_CUT)[faces].any(axis=1)
-
-    o = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(vertices), o3d.utility.Vector3iVector(faces[below]))
-    o.vertex_colors = o3d.utility.Vector3dVector(colours)
-    o.remove_unreferenced_vertices()
-    if len(o.triangles) > FACES:
-        o = o.simplify_quadric_decimation(FACES)
-    colours = (np.clip(np.asarray(o.vertex_colors), 0, 1) * 255).astype(np.uint8)
-    trimesh.Trimesh(np.asarray(o.vertices) @ Z_UP_TO_Y_UP.T, np.asarray(o.triangles), vertex_colors=colours,
-                    process=False).export(path)
-    return len(o.triangles)
+def write_glb(mesh, chunk_to_room: torch.Tensor, centres: torch.Tensor, path: Path) -> int:
+    """GenRecon's textured GLB of the mesh, in room coordinates, Y-up and without the ceiling: chunked_to_glb.py
+    with its default settings, but FACES and TEXTURE. It fills the holes, remeshes, and per chunk simplifies,
+    unwraps and bakes the colour voxels into a texture, on a double-sided material. (Colours per vertex of a
+    simplified mesh are blurred, and the faces of GenRecon's raw mesh do not consistently face outwards, so a
+    viewer that hides back faces hides half of them: every floor.) Returns its number of faces."""
+    size, shift = float(chunk_to_room[0, 0]), chunk_to_room[:3, 3].to(mesh.vertices)  # a scale and a shift
+    vertices, faces = mesh.vertices * size + shift, mesh.faces.long()
+    used, faces = torch.unique(faces[(vertices[:, 2] < CEILING_CUT)[faces].any(dim=1)], return_inverse=True)
+    vertices, faces = vertices[used], faces.int()  # without the ceiling's vertices
+    voxel, origin = mesh.voxel_size * size, mesh.origin * size + shift
+    # The remeshing halves the voxel grid down to 32: reconstruct_scene.py pads the grid in the same way.
+    grid = torch.tensor([reconstruct_scene._next_halving_friendly(int(n)) for n in mesh.voxel_shape[2:]]).to(origin)
+    scene = chunked_to_glb(
+        vertices_world=vertices, faces=faces, attr_volume=mesh.attrs, coords=mesh.coords, attr_layout=mesh.layout,
+        aabb_world=torch.stack([origin, origin + grid * voxel]), voxel_size_world=voxel,
+        chunk_centers_world=centres, chunk_size_world=size, chunk_indices=range(len(centres)),
+        simplify_threshold=FACES // len(centres), texture_size=TEXTURE, verbose=False)
+    scene.export(path)
+    return sum(len(g.faces) for g in scene.geometry.values())
 
 
 @torch.no_grad()
@@ -196,8 +198,9 @@ def main():
         for n, (base, room) in enumerate(todo, 1):
             print(f"=== {out.name}: room {room} ({n}/{len(todo)})", flush=True)
             glb[room].parent.mkdir(parents=True, exist_ok=True)
-            mesh, chunk_to_room = reconstruct(pipeline, base, room, base / info["cues"] / room, glb[room].parent, cues)
-            faces = write_glb(mesh, chunk_to_room, glb[room].with_suffix(".tmp.glb"))
+            mesh, chunk_to_room, centres = reconstruct(pipeline, base, room, base / info["cues"] / room,
+                                                       glb[room].parent, cues)
+            faces = write_glb(mesh, chunk_to_room, centres, glb[room].with_suffix(".tmp.glb"))
             glb[room].with_suffix(".tmp.glb").rename(glb[room])  # a mesh.glb is always a complete one
             print(f"{room}: {mesh.faces.shape[0]:,} faces, {faces:,} in {glb[room]}", flush=True)
             del mesh

@@ -88,8 +88,10 @@ Each run also has `mesh/<room>`: GenRecon's full-scene reconstruction of every v
 bench: the rooms it trained on), with the run's final aggregator in the sparse-structure stage and released
 GenRecon for the rest. The run `genrecon_released` of the same group has the same rooms from released GenRecon,
 without any finetuning. All of them use Solv3R's cameras, the same views, chunks and seed, so the meshes of a room
-differ only by the aggregator. The uploaded meshes are simplified to 300k faces and have no ceiling (cut at
-2.4 m), so the viewer looks into the room. To compare runs, add a media panel for `mesh/<room>`.
+differ only by the aggregator. The uploaded meshes are GenRecon's textured GLBs (as its `chunked_to_glb.py` makes
+them: remeshed, with the colours baked into a 1024-pixel texture per chunk), simplified to 300k faces and without
+the ceiling (cut at 2.4 m), so the viewer looks into the room. To compare runs, add a media panel for
+`mesh/<room>`.
 
 ## Files
 
