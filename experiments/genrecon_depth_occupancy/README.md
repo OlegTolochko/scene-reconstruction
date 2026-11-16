@@ -18,6 +18,10 @@ All other stage 1 cells are deleted, including cells hidden behind a surface ins
 - `colmap_solv3r` and `depth_only_solv3r`: the same as `colmap` and `depth_only` with Solv3R's depth
   (`experiments/solv3r_depth`) instead of VGGT-Omega's. Solv3R's depth is 504×336 instead of 624×416, so each
   source projects at its own depth's resolution.
+- `carve_scan`, `carve` and `carve_solv3r`: stage 1's cells minus the cells the depth shows to be empty (a cell goes
+  when its centre lies more than 1.5 cells in front of the depth in at least one view for `carve_scan`, two views
+  otherwise). Nothing is added, and cells behind surfaces or outside every image stay. The depth is the scan's,
+  VGGT-Omega's and Solv3R's, scaled as for `colmap`.
 
 Requires the baseline runs, the scan cells from the oracle experiment's `occupancy.py`, the GenRecon env, and for
 `colmap` the output of `experiments/vggt_omega_depth/infer.py` (for the `_solv3r` sources,
@@ -30,4 +34,4 @@ uv run scripts/evaluate_scannetpp.py outputs/genrecon_depth_occupancy/scan/32vie
 uv run experiments/genrecon_oracle_occupancy/fscores.py outputs/genrecon_depth_occupancy/scan/32views  # F@2/5/10cm
 ```
 
-The same commands with `colmap`, `depth_only`, `colmap_solv3r` or `depth_only_solv3r` run the other sources.
+The same commands with `colmap`, `depth_only`, `colmap_solv3r`, `depth_only_solv3r`, `carve_scan`, `carve` or `carve_solv3r` run the other sources.
