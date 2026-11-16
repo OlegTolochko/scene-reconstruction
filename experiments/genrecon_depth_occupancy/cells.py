@@ -12,8 +12,16 @@ All other stage 1 cells are deleted. A surface cell holds depth points from at l
     colmap_solv3r, depth_only_solv3r
                 the same with Solv3R's depth (experiments/solv3r_depth) instead of VGGT-Omega's
 
+The carve sources keep stage 1's cells and only delete the ones the depth shows to be empty: a cell goes
+when at least MIN_VIEWS views see past it, i.e. its centre lies more than CARVE_MARGIN cells in front of the
+view's depth. Cells no view sees past, behind surfaces or outside every image, stay.
+
+    carve_scan      the scan's depth, as for scan: the most carving can remove
+    carve           colmap's depth
+    carve_solv3r    the same with Solv3R's depth
+
 Usage:
-    uv run experiments/genrecon_depth_occupancy/cells.py {scan,colmap,depth_only,colmap_solv3r,depth_only_solv3r} 32
+    uv run experiments/genrecon_depth_occupancy/cells.py {scan,colmap,depth_only,colmap_solv3r,depth_only_solv3r,carve_scan,carve,carve_solv3r} 32
 
 writes outputs/genrecon_depth_occupancy/<source>/cells/<N>views/<scene>.npz in the format inject.py reads
 (a scene that already has one is not computed again), compares the cells with the scan's and prints the mean
@@ -35,7 +43,9 @@ from occupancy import BASELINE, GT, R, compare, layout, predicted_cells  # noqa:
 
 OUT = ROOT / "outputs/genrecon_depth_occupancy"
 SCAN_WIDTH, SCAN_HEIGHT = 624, 416  # resolution of the scan's depth (VGGT-Omega's); predicted depth keeps its own
-MIN_VIEWS = {"scan": 1, "colmap": 2, "depth_only": 1, "colmap_solv3r": 2, "depth_only_solv3r": 1}
+MIN_VIEWS = {"scan": 1, "colmap": 2, "depth_only": 1, "colmap_solv3r": 2, "depth_only_solv3r": 1,
+             "carve_scan": 1, "carve": 2, "carve_solv3r": 2}
+CARVE_MARGIN = 1.5  # cells: a carved cell's centre lies this far in front of the depth, so its far side at least one cell
 EDGE_RATIO = 0.1  # pixels whose 3x3 depth range exceeds this share of their depth are dropped
 
 
@@ -117,12 +127,26 @@ def surface_cells(depths: list[np.ndarray], rotations: np.ndarray, translations:
     return cells[views >= min_views]
 
 
+def carve(pred: np.ndarray, depths: list[np.ndarray], rotations: np.ndarray, translations: np.ndarray, K: np.ndarray, lay: dict, min_views: int) -> np.ndarray:
+    """Stage 1's cells without the ones that at least min_views views see past."""
+    height, width = depths[0].shape
+    centres = lay["origin"] + (pred + 0.5) * lay["cell"]
+    views = np.zeros(len(pred), dtype=int)
+    for depth, rotation, translation in zip(depths, rotations, translations):
+        u, v, z, inside = project(centres, rotation, translation, K, width, height)
+        observed = np.full(len(pred), np.nan)
+        observed[inside] = depth[v[inside].astype(int), u[inside].astype(int)]
+        with np.errstate(invalid="ignore"):
+            views += z < observed - CARVE_MARGIN * lay["cell"]  # NaN (outside, no depth, edge) compares False
+    return pred[views < min_views]
+
+
 def edit(scene: str, n: int, source: str) -> dict:
     run_dir = BASELINE / f"{n}views" / scene
     lay = layout(run_dir)
     frames = json.loads((ROOT / f"data/scannetpp/eval_inputs/{n}views/{scene}/dslr/nerfstudio/transforms_undistorted.json").read_text())["frames"]
     names = sorted(f["file_path"] for f in frames)
-    if source == "scan":
+    if source in ("scan", "carve_scan"):
         width, height = SCAN_WIDTH, SCAN_HEIGHT
         rotations, translations, K = cameras(scene, names, width)
         depths = scan_depth(scene, rotations, translations, K, width, height)
@@ -134,6 +158,9 @@ def edit(scene: str, n: int, source: str) -> dict:
         height, width = prediction["depth"].shape[1:]
         rotations, translations, K = cameras(scene, names, width)
         depths = colmap_scaled_depth(scene, prediction["depth"], names, rotations, translations, K)
+    if source.startswith("carve"):
+        cells = carve(predicted_cells(run_dir, lay), depths, rotations, translations, K, lay, MIN_VIEWS[source])
+        return {"all": cells.astype(np.int16), "visible": cells.astype(np.int16), "centres": lay["centres"]}
     cells = surface_cells(depths, rotations, translations, K, lay, MIN_VIEWS[source])
 
     if not source.startswith("depth_only"):
