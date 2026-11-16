@@ -7,18 +7,19 @@
 #SBATCH --time=06:00:00
 #SBATCH --output=experiments/genrecon_mlp_bench/mlp-bench-%j.log
 #
-# Finetunes one aggregator variant (variants.py) and logs it to Weights & Biases, then reconstructs the bench's
-# validation rooms with it (mesh.py) and uploads the meshes to the same W&B run. A job does only what its command
-# names. From the repo root:
+# Finetunes one aggregator variant (variants.py) and logs it to Weights & Biases: its validation loss and the
+# occupancy IoU of its sparse structures. With --mesh it then also reconstructs the bench's validation rooms with
+# it (mesh.py) and uploads the meshes to the same W&B run. A job does only what its command names. From the repo
+# root:
 #
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch                   # the references of a bench (below)
-#   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_cue_only_x10   # that variant alone
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch                          # the baseline of a bench
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch depth_cue_only_x10       # that variant alone
+#   sbatch experiments/genrecon_mlp_bench/run.sbatch --mesh depth_cue_only_x10  # ... and its meshes
 #
-# Without arguments, the job makes the references of the bench, in this order:
-#   1. the true rooms as meshes (ground_truth.py; the W&B run ground_truth),
-#   2. the meshes of released GenRecon, without any finetuning (the W&B run genrecon_released),
-#   3. the baseline (the variant `genrecon`: GenRecon's unchanged aggregator finetuned like every variant), with
-#      its curves and its meshes.
+# Without a variant, the job trains the baseline (the variant `genrecon`: GenRecon's unchanged aggregator
+# finetuned like every variant). With --mesh it first makes the other references of the bench: the true rooms as
+# meshes (ground_truth.py; the W&B run ground_truth) and the meshes of released GenRecon, without any finetuning
+# (the W&B run genrecon_released). Meshes are off by default: they take long and the curves do not need them.
 set -euo pipefail
 
 # One bench = one set of rooms and settings = one baseline. Its runs go to $OUT_ROOT/$BENCH/<run>/ and form one
@@ -42,6 +43,15 @@ BLENDER=${BLENDER:-/cluster/vc17/pr26rb06/blender/blender-5.0.1-linux-x64/blende
 
 # ---- the job ----
 
+MESH=0; ARGS=()
+for arg in "$@"; do
+    case $arg in
+        --mesh) MESH=1 ;;
+        -*) echo "unknown option $arg (known: --mesh)"; exit 1 ;;
+        *) ARGS+=("$arg") ;;
+    esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 VARIANT=${1:-genrecon}; SEED=${2:-0}
 REPO=$(pwd)
 HERE=$REPO/experiments/genrecon_mlp_bench
@@ -114,10 +124,12 @@ ground_truth() {
 }
 
 failed=0
-if [ $# -eq 0 ]; then   # the references of a bench: only with the command without arguments
-    ground_truth || { failed=1; echo "ground_truth failed: going on"; }       # 1. the true rooms
-    meshes || { failed=1; echo "genrecon_released failed: going on"; }        # 2. released GenRecon
+if [ $# -eq 0 ] && [ "$MESH" = 1 ]; then   # the mesh references of a bench: only without a variant, with --mesh
+    ground_truth || { failed=1; echo "ground_truth failed: going on"; }       # the true rooms
+    meshes || { failed=1; echo "genrecon_released failed: going on"; }        # released GenRecon
 fi
-train "$VARIANT" "$SEED"                  # 3. (without arguments: the baseline) finetuning, with its curves,
-meshes "$(run_name "$VARIANT" "$SEED")"   #    and its meshes
+train "$VARIANT" "$SEED"                      # (without a variant: the baseline) finetuning, with its curves
+if [ "$MESH" = 1 ]; then
+    meshes "$(run_name "$VARIANT" "$SEED")"   # and, with --mesh, its meshes
+fi
 exit $failed

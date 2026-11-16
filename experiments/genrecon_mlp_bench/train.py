@@ -24,11 +24,14 @@ errors of real images.
 import json
 import os
 import sys
+import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader, Subset
 
 HERE = Path(__file__).resolve().parent
 GENRECON = HERE.parents[1] / "papers/GenRecon"
@@ -44,8 +47,10 @@ SEED = int(os.environ.get("MLP_BENCH_SEED", "0"))
 
 import aggregator as agg_lib  # noqa: E402
 import variants  # noqa: E402, F401  (registers the variants)
-from bench import BenchTrainerMixin, PairedItemsMixin, claim_run  # noqa: E402
+from bench import BenchTrainerMixin, PairedItemsMixin, claim_run, named_seed  # noqa: E402
 from genrecon import datasets, trainers  # noqa: E402
+from genrecon.pipelines import samplers  # noqa: E402
+from genrecon.utils.data_utils import recursive_to_device  # noqa: E402
 from genrecon.datasets.sparse_structure_latent import RoomCameraConditionedSparseStructureLatent  # noqa: E402
 from genrecon.pipelines.setup_utils import load_state_dict_flexible  # noqa: E402
 from genrecon.trainers.flow_matching.flow_matching import CameraConditionedFlowMatchingCFGTrainer  # noqa: E402
@@ -152,12 +157,39 @@ def perturb_depth(depth: torch.Tensor, view_scale: float = 0.0, field: float = 0
     return depth * torch.exp(log)  # unknown depth (<= 0, non-finite) stays unknown
 
 
+# GenRecon's inference sampler of the sparse-structure stage (configs/pipelines/original.json), as in
+# genrecon_mlp_finetuning/eval_occupancy.py.
+OCC_SAMPLER = dict(steps=12, guidance_strength=7.5, guidance_rescale=0.7, guidance_interval=[0.6, 1.0], rescale_t=5.0)
+OCC_TOL = 1  # voxels, of the tolerant metrics
+
+
+def occupancy_metrics(pred: torch.Tensor, gt: torch.Tensor, tol: int = OCC_TOL) -> dict:
+    """pred, gt [R, R, R] bool: precision, recall, F1 and IoU on exact voxels, and precision, recall and F1 with a
+    tolerance of tol voxels (a voxel counts if the other grid has one in its (2 tol + 1)^3 neighbourhood)."""
+    eps = 1e-9
+    p, g = pred.sum().item(), gt.sum().item()
+    tp = (pred & gt).sum().item()
+    m = {"precision": tp / max(p, eps), "recall": tp / max(g, eps), "iou": tp / max((pred | gt).sum().item(), eps)}
+    m["f1"] = 2 * m["precision"] * m["recall"] / max(m["precision"] + m["recall"], eps)
+    k = 2 * tol + 1
+    dil = lambda x: F.max_pool3d(x[None, None].float(), k, 1, tol)[0, 0] > 0  # noqa: E731
+    pt = (pred & dil(gt)).sum().item() / max(p, eps)
+    rt = (gt & dil(pred)).sum().item() / max(g, eps)
+    m.update({f"precision_tol{tol}": pt, f"recall_tol{tol}": rt, f"f1_tol{tol}": 2 * pt * rt / max(pt + rt, eps)})
+    return m
+
+
 class MlpBenchTrainer(BenchTrainerMixin, CameraConditionedFlowMatchingCFGTrainer):
     """GenRecon's trainer with bench.py's additions. Gives the aggregator its depth cues from the batch before
-    GenRecon's own conditioning runs."""
+    GenRecon's own conditioning runs.
 
-    def __init__(self, models, *args, conf_mean: float = 0.0, conf_std: float = 1.0, **kwargs):
+    occ_seeds (config trainer.args, default 1): noises per validation chunk for the occupancy metrics computed
+    with each validation (occupancy); 0 turns them off."""
+
+    def __init__(self, models, *args, conf_mean: float = 0.0, conf_std: float = 1.0, occ_seeds: int = 1, **kwargs):
         self.conf_mean, self.conf_std = conf_mean, conf_std
+        self.occ_seeds = int(occ_seeds)
+        self._occ_dec, self._occ_gt = None, None
         model = models["denoiser"]
         info = {"variant": VARIANT, "seed": SEED, "code_hash": agg_lib.source_hash(VARIANT),
                 "start_difference": model.aggregator.start_difference, "trained_weights": model.trained_weights,
@@ -166,7 +198,7 @@ class MlpBenchTrainer(BenchTrainerMixin, CameraConditionedFlowMatchingCFGTrainer
         shown = ("max_steps", "batch_size_per_gpu", "optimizer", "lr_scheduler", "ema_rate", "i_val")
         config = {**info, **{k: kwargs[k] for k in shown if k in kwargs},
                   "train_chunks": len(args[0]) if args else None, "val_seed": kwargs.get("val_seed", 0),
-                  "val_repeats": kwargs.get("val_repeats", 4)}
+                  "val_repeats": kwargs.get("val_repeats", 4), "occ_seeds": self.occ_seeds}
         config = json.loads(json.dumps(config))  # plain dicts and lists for W&B
         super().__init__(models, *args, seed=SEED, run_config=config, code_dir=HERE, **kwargs)
 
@@ -197,6 +229,61 @@ class MlpBenchTrainer(BenchTrainerMixin, CameraConditionedFlowMatchingCFGTrainer
         self._set_cues(x_0, cue_depth, cue_conf, cue_K, cue_extrinsics)
         return super().get_inference_cond(denoiser, cond, extrinsics, intrinsics, cond_batch_idx=cond_batch_idx,
                                           x_0=x_0, **kwargs)
+
+    # ---- occupancy of the sparse structure ----
+
+    def _occupied(self, z: torch.Tensor) -> torch.Tensor:
+        """The 64^3 occupancy [R, R, R] bool of a latent [1, C, r, r, r], as GenRecon's pipeline thresholds it."""
+        ds = self.val_dataset
+        if self._occ_dec is None:  # kept here, not in the dataset, which the DataLoader workers copy
+            ds._loading_ss_dec()
+            self._occ_dec, ds.ss_dec = ds.ss_dec, None
+        z = z.float()
+        if ds.normalization:
+            z = z * ds.std.to(z.device) + ds.mean.to(z.device)
+        return self._occ_dec(z)[0, 0] > 0
+
+    @torch.no_grad()
+    def occupancy(self):
+        """For every validation chunk (the views of the first paired validation draw) and occ_seeds fixed noises:
+        sample the latent with GenRecon's inference sampler from pure noise, decode it and compare its occupancy
+        with the decoded ground-truth latent (genrecon_mlp_finetuning/eval_occupancy.py). The mean over chunks
+        and noises. The same chunks, views and noises for every run and step; the weights trained (not the EMA),
+        as val/mse."""
+        if not self.occ_seeds or self.val_dataset is None:
+            return None
+        start = time.time()
+        ds = self.val_dataset
+        chunks = len(ds) // ds.pair_repeats  # items 0 .. chunks - 1: the first repeat, one fixed draw per chunk
+        loader = DataLoader(Subset(ds, range(chunks)), batch_size=1, shuffle=False, num_workers=2,
+                            collate_fn=ds.collate_fn)
+        model = self.models["denoiser"]
+        model.eval()
+        sampler = samplers.FlowEulerGuidanceIntervalSampler(self.sigma_min)
+        amp = (lambda: torch.autocast("cuda", dtype=self.mix_precision_dtype)) if self.mix_precision_mode == "amp" \
+            else nullcontext
+        first = self._occ_gt is None
+        if first:
+            self._occ_gt = []
+        per = []
+        try:
+            for i, batch in enumerate(loader):
+                data = recursive_to_device(batch, self.device)
+                x_0 = data.pop("x_0")
+                if first:
+                    self._occ_gt.append(self._occupied(x_0))
+                with amp():
+                    cond = self.get_inference_cond(model, x_0=x_0, **data)
+                    z = []
+                    for s in range(self.occ_seeds):
+                        g = torch.Generator(device=x_0.device).manual_seed(named_seed(self.val_seed, "occ", s, i))
+                        noise = torch.randn(x_0.shape, generator=g, device=x_0.device, dtype=x_0.dtype)
+                        z.append(sampler.sample(model, noise=noise, **cond, **OCC_SAMPLER, verbose=False).samples)
+                per += [occupancy_metrics(self._occupied(zs), self._occ_gt[i]) for zs in z]
+        finally:
+            model.train()
+        print(f"occupancy: {chunks} chunks x {self.occ_seeds} noises in {time.time() - start:.0f} s", flush=True)
+        return {k: float(np.mean([m[k] for m in per])) for k in per[0]}
 
 
 _build_single_model = model_wrapper_utils.build_single_model

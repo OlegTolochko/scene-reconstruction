@@ -25,6 +25,7 @@ import torch
 BASELINE = "genrecon"  # the run folder (and variant) every other run of a bench is compared with
 STEP = "training_step"  # the x axis of every W&B chart
 CEILING_CUT = 2.4  # metres above the floor (ceiling: 2.7): uploaded meshes end there, so the viewer looks into the room
+OCC_COMPARED = ("occ/iou", "occ/f1_tol1")  # occupancy metrics compared with step 0 and the baseline
 
 
 def seed_all(seed: int, cuda: bool) -> None:
@@ -177,6 +178,10 @@ class BenchTrainerMixin:
     A run in a folder other than `genrecon` also logs vs_genrecon/val_mse_percent: its validation loss relative
     to the baseline run next to it, at the same step. Below 0 is better than the baseline. Every run logs
     vs_released/val_mse_percent: its validation loss relative to its own step 0, released GenRecon.
+
+    With each validation, occupancy() (the trainer's) may add occupancy metrics: val/occ/<metric>, and for
+    OCC_COMPARED vs_released/occ_<metric>_points and vs_genrecon/occ_<metric>_points, differences in points
+    (above 0 is better).
     """
 
     saved_prefix = "aggregator."  # the parameters a checkpoint holds; everything that trains has to be among them
@@ -221,8 +226,11 @@ class BenchTrainerMixin:
         try:
             with fixed_rng(self.val_seed, cuda=torch.cuda.is_available()):  # training's random stream is untouched
                 val_log = super().run_val_step()
+                occ = self.occupancy() if self.is_master else None
         finally:
             self.p_uncond, self._val_batch = p_uncond, None
+        if occ:
+            val_log["occ"] = occ  # logged by GenRecon's loop as val/occ/<metric>, like the loss
         if self.is_master:
             self._record_val(flatten(val_log))
         return val_log
@@ -240,6 +248,20 @@ class BenchTrainerMixin:
         if self.step in baseline:
             self.writer.add_scalar("vs_genrecon/val_mse_percent", percent(flat["mse"], baseline[self.step]["mse"]),
                                    self.step)
+        for key in OCC_COMPARED:  # differences in points (x 100): above 0 is better
+            if key not in flat:
+                continue
+            name = key.replace("/", "_")
+            if key in rows.get(0, {}):
+                self.writer.add_scalar(f"vs_released/{name}_points", 100 * (flat[key] - rows[0][key]), self.step)
+            if key in baseline.get(self.step, {}):
+                self.writer.add_scalar(f"vs_genrecon/{name}_points", 100 * (flat[key] - baseline[self.step][key]),
+                                       self.step)
+
+    def occupancy(self) -> dict | None:
+        """Occupancy metrics of the validation chunks ({"iou": ..., ...}), or None: computed by the trainer
+        (train.py), which knows GenRecon's sampler and decoder."""
+        return None
 
     def run(self):
         if self.step == 0 and self.val_dataloader is not None:
@@ -263,6 +285,15 @@ class BenchTrainerMixin:
             if 0 in mine:
                 summary["vs_released/best_mse_percent"] = percent(mine[best]["mse"], mine[0]["mse"])
             base = read_val(self.baseline_dir / "val.jsonl") if self.baseline_dir else {}
+            last = max(mine)
+            for key in OCC_COMPARED:  # the occupancy of the final weights, the ones mesh.py uses
+                if key in mine[last]:
+                    name = key.replace("/", "_")
+                    summary[f"{key}_final"] = mine[last][key]
+                    if key in mine.get(0, {}):
+                        summary[f"vs_released/{name}_points_final"] = 100 * (mine[last][key] - mine[0][key])
+                    if key in base.get(last, {}):
+                        summary[f"vs_genrecon/{name}_points_final"] = 100 * (mine[last][key] - base[last][key])
             if base and (self.baseline_dir / "DONE").exists():
                 base_best = min(base, key=lambda s: base[s]["mse"])
                 reached = next((s for s, r in mine.items() if s > 0 and r["mse"] <= base[base_best]["mse"]), None)

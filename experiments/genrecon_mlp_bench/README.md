@@ -88,24 +88,27 @@ Once, on the cluster: `uv pip install --python papers/GenRecon/.venv/bin/python 
 Then, from the repo root:
 
 ```bash
-sbatch experiments/genrecon_mlp_bench/run.sbatch my_idea       # that variant only
-sbatch experiments/genrecon_mlp_bench/run.sbatch               # the references: true rooms, released GenRecon, baseline
-sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1    # the baseline alone, with another training seed
+sbatch experiments/genrecon_mlp_bench/run.sbatch my_idea          # that variant only
+sbatch experiments/genrecon_mlp_bench/run.sbatch --mesh my_idea   # ... and its meshes
+sbatch experiments/genrecon_mlp_bench/run.sbatch                  # the baseline
+sbatch experiments/genrecon_mlp_bench/run.sbatch --mesh           # the baseline and all mesh references
+sbatch experiments/genrecon_mlp_bench/run.sbatch genrecon 1       # the baseline alone, with another training seed
 ```
 
-- A job does only what its command names. A variant job trains that variant and makes its meshes, nothing else.
-- The command without arguments makes the references of a bench, once and in this order: the true rooms as
-  meshes (`ground_truth.py`), the meshes of released GenRecon, without any finetuning, and the baseline (the
-  variant `genrecon`: the unchanged aggregator, finetuned on the same rooms with the same settings and cameras)
-  with its curves and its meshes. If one of the first two fails, the job goes on and ends with status 1.
+- A job does only what its command names. A variant job trains that variant, nothing else; with `--mesh` it
+  also makes its meshes. Meshes are off by default.
+- The command without a variant trains the baseline (the variant `genrecon`: the unchanged aggregator, finetuned
+  on the same rooms with the same settings and cameras). With `--mesh` it first makes the other references of the
+  bench, once: the true rooms as meshes (`ground_truth.py`) and the meshes of released GenRecon, without any
+  finetuning; then the baseline's meshes. If one of the first two fails, the job goes on and ends with status 1.
 - A bench is named in `run.sbatch` (`BENCH`). Its rooms and `config.json` are frozen in its folder when it is
   first set up, so all its runs are comparable. To change steps, learning rate or rooms, give `BENCH` a new name.
 - Resubmitting a command resumes its run. Once a variant has been submitted, give a changed version a new name:
   a run refuses to continue with other code than it started with.
 - Checkpoints hold only the aggregator (about 130 MB per saved step, with the EMA weights and the optimiser
   state), not the 1.3 B-weight model.
-- After training, the job reconstructs the bench's validation rooms with the run's aggregator (`mesh.py`) and
-  uploads the meshes. For a run that is already trained, resubmitting its command does only that.
+- With `--mesh`, after training the job reconstructs the bench's validation rooms with the run's aggregator
+  (`mesh.py`) and uploads the meshes. For a run that is already trained, resubmitting with `--mesh` does only that.
 
 ## Read it
 
@@ -117,6 +120,8 @@ All runs of a bench are one group in the W&B project `genrecon-mlp-bench`, named
 | `vs_genrecon/val_mse_percent` | the run's `val/mse` relative to the baseline's at the same step; below 0 is better than the baseline |
 | `vs_released/val_mse_percent` | the run's `val/mse` relative to its own step 0, released GenRecon: the chart for runs that train only cue layers |
 | `val/bin_<k>/mse` | `val/mse` for the timesteps in `[k/10, (k+1)/10)`; 1 is pure noise |
+| `val/occ/iou`, `val/occ/f1_tol1`, ... | occupancy of the sparse structure: each validation chunk sampled from pure noise with GenRecon's inference sampler (12 steps, CFG), decoded and compared with the true occupancy (64³ voxels); `tol1` counts a voxel one voxel off as right. Same chunks, views and noise for every run and step (`occ_seeds` noises per chunk, 1 by default) |
+| `vs_genrecon/occ_iou_points`, `vs_released/occ_iou_points` | the run's `val/occ/iou` minus the baseline's at the same step, or minus its own step 0, in points (×100); above 0 is better. The same for `f1_tol1` |
 | `loss/mse`, `status/*` | GenRecon's own training curves |
 
 The run summary adds `val/best_mse`, `vs_genrecon/best_mse_percent` and `vs_genrecon/reaches_genrecon_best_at_step`
