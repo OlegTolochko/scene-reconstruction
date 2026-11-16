@@ -42,12 +42,13 @@ uv run scripts/evaluate_scannetpp.py outputs/genrecon_inpaint_occupancy/solv3r/3
 uv run experiments/genrecon_oracle_occupancy/fscores.py outputs/genrecon_inpaint_occupancy/solv3r/32views  # F@2/5/10cm
 ```
 
-On the cluster, `run.sbatch` does all four steps for one variant. Submitting it again continues a job that hit the
-time limit:
+On the cluster, `run.sbatch` does everything for one variant: the baseline run and Solv3R's depth where they are
+missing, then the four steps above, and the evaluation of the baseline next to the variant. Submitting it again
+continues a job that hit the time limit:
 
 ```bash
-mkdir -p logs && sbatch experiments/genrecon_inpaint_occupancy/run.sbatch solv3r  # or scan, scan_fix, solv3r_fix
-SCENES="5f99900f09 cc5237fd77" sbatch experiments/genrecon_inpaint_occupancy/run.sbatch solv3r  # a few scenes first
+mkdir -p logs && SCENES=5f99900f09 sbatch experiments/genrecon_inpaint_occupancy/run.sbatch solv3r  # one scene first
+sbatch experiments/genrecon_inpaint_occupancy/run.sbatch solv3r  # every evaluation scene; or scan, scan_fix, solv3r_fix
 ```
 
 The same commands run `scan`. The `_fix` variants use their source's cells (`run.py solv3r_fix 32` after

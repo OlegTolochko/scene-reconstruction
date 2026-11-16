@@ -28,7 +28,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "experiments/genrecon_oracle_occupancy"))
-from occupancy import BASELINE, GT, R, layout  # noqa: E402
+from occupancy import BASELINE, R, layout  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("depth_cells", ROOT / "experiments/genrecon_depth_occupancy/cells.py")
 depth_cells = importlib.util.module_from_spec(spec)
@@ -64,13 +64,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source", choices=MODEL)
     parser.add_argument("views", type=int, nargs="+", help="numbers of input views")
-    parser.add_argument("--scenes", nargs="*", help="default: every scene with scan cells from occupancy.py")
+    parser.add_argument("--scenes", nargs="*", help="default: every scene with a baseline run")
     args = parser.parse_args()
 
     for n in args.views:
         (OUT / args.source / f"cells/{n}views").mkdir(parents=True, exist_ok=True)
         shares = []
-        for scene in args.scenes or sorted(p.stem for p in (GT / f"{n}views").glob("*.npz")):
+        for scene in args.scenes or sorted(p.parent.name for p in (BASELINE / f"{n}views").glob("*/mesh.ply.zst")):
             path = OUT / args.source / f"cells/{n}views/{scene}.npz"
             if not path.exists():
                 np.savez_compressed(path, **label(scene, n, args.source))

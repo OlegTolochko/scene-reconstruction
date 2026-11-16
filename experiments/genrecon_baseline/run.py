@@ -19,10 +19,13 @@ GENRECON = ROOT / "papers/GenRecon"
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("views", type=int, nargs="+", help="numbers of input views")
+    parser.add_argument("--scenes", nargs="*", help="default: every scene of the evaluation inputs")
     args = parser.parse_args()
 
     for n in args.views:
         for scene in sorted((ROOT / f"data/scannetpp/eval_inputs/{n}views").iterdir()):
+            if args.scenes and scene.name not in args.scenes:
+                continue
             out = ROOT / f"outputs/genrecon_baseline/{n}views" / scene.name
             if (out / "mesh.ply.zst").exists():
                 continue
