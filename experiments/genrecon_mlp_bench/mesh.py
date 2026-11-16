@@ -97,6 +97,29 @@ class DepthCues:
         self.maps = (*(x[None].to(device) for x in (w2c.float(), K, stack("depth"), stack("conf"))), voxel)
 
 
+def refine_per_chunk(model) -> None:
+    """For a variant that refines the fused features of a whole chunk (a refine() method, e.g. global_attention).
+    GenRecon's pipeline fuses the whole scene's grid in batches of voxels and then cuts out each chunk's grid:
+    the variant fuses without refining there, and refine() runs on every chunk's cut, as on a chunk in training.
+    The negative (unconditional) cond stays 0, as in training."""
+    agg = model.aggregator
+    if not hasattr(agg, "refine"):
+        return
+    agg.refine_in_forward = False
+    build = fs.FullSceneImagesTo3DPipeline._build_global_dense_cond
+
+    def build_refined(self, flow_model, *args, zero_3d_cond=False, **kwargs):
+        conds = build(self, flow_model, *args, zero_3d_cond=zero_3d_cond, **kwargs)
+        if flow_model is model and not zero_3d_cond:
+            w = agg.output_layer.weight
+            for c in conds:
+                x = c["cond"]["cond_3D"]  # [1, R^3, D], GenRecon's voxel order
+                c["cond"]["cond_3D"] = agg.refine(x.to(w)).to(x)
+        return conds
+
+    fs.FullSceneImagesTo3DPipeline._build_global_dense_cond = build_refined
+
+
 def last_checkpoint(run: Path) -> tuple[Path, int]:
     """The run's last checkpoint of the weights it trains (not their EMA), and its step."""
     found = sorted((run / "ckpts").glob("denoiser_step*.pt"))
@@ -194,6 +217,7 @@ def main():
         if args.run:
             model = pipeline.models["sparse_structure_flow_model"].to(pipeline.device)
             run_info = load_aggregator(model, out)
+            refine_per_chunk(model)
             cues = DepthCues(model, run_info["conf_mean"], run_info["conf_std"])
         for n, (base, room) in enumerate(todo, 1):
             print(f"=== {out.name}: room {room} ({n}/{len(todo)})", flush=True)

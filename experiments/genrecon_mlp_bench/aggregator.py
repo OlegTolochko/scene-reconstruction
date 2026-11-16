@@ -127,17 +127,19 @@ class Aggregator(nn.Module):
 
 
 @torch.no_grad()
-def start_difference(base: nn.Module, agg: Aggregator) -> float:
+def start_difference(base: nn.Module, agg: Aggregator, voxels: int | None = None) -> float:
     """Largest difference between the variant and GenRecon's aggregator on random inputs and cues, relative to the
-    largest output. 0 for a variant that starts exactly at GenRecon."""
+    largest output. 0 for a variant that starts exactly at GenRecon. The voxels are a whole grid (resolution^3),
+    as one chunk in training, so variants that work across the voxels of a chunk run too."""
     w = base.feature_mlp[0].weight
+    V = voxels or base.resolution**3
     g = torch.Generator().manual_seed(0)  # its own generator: the global random streams stay as they are
-    feats = torch.randn(1, 4, 9, base.channels, generator=g).to(w)
-    mask = torch.rand(1, 4, 9, generator=g) < 0.7
+    feats = torch.randn(1, 4, V, base.channels, generator=g).to(w)
+    mask = torch.rand(1, 4, V, generator=g) < 0.7
     mask[:, :, 0] = False  # a voxel no view sees
     mask = mask.to(w.device)
     feats = feats * mask.unsqueeze(-1)  # as the projection delivers them
-    cues = torch.randn(1, 4, 9, N_CUES, generator=g).to(w)
+    cues = torch.randn(1, 4, V, N_CUES, generator=g).to(w)
     training = base.training, agg.training
     base.eval(), agg.eval()
     agg.cues = cues
@@ -178,6 +180,7 @@ def stand_in(channels: int = 16) -> nn.Module:
     """A small module with the layout of GenRecon's aggregator, to try a variant without GenRecon or a GPU."""
     base = nn.Module()
     base.channels = channels
+    base.resolution = 2  # voxels per side of a chunk's grid (GenRecon's: 16)
     relu = lambda: nn.ReLU(inplace=True)  # noqa: E731
     base.feature_mlp = nn.Sequential(nn.Linear(3 * channels, channels), relu(), nn.Linear(channels, channels), relu(),
                                      nn.Linear(channels, channels))
@@ -194,16 +197,16 @@ def preflight(name: str) -> str:
     torch.manual_seed(0)
     base = stand_in()
     agg = VARIANTS[name](base)
-    difference = start_difference(Aggregator(base), agg)
-    C = base.channels
-    mask = torch.rand(2, 3, 5) < 0.7
+    difference = start_difference(Aggregator(base), agg, base.resolution**3)
+    C, V = base.channels, base.resolution**3  # a whole grid, as one chunk
+    mask = torch.rand(2, 3, V) < 0.7
     mask[:, :, 0] = False
-    feats, cues = torch.randn(2, 3, 5, C) * mask.unsqueeze(-1), torch.randn(2, 3, 5, N_CUES)
+    feats, cues = torch.randn(2, 3, V, C) * mask.unsqueeze(-1), torch.randn(2, 3, V, N_CUES)
 
     def run(module, feats):
         module.cues = cues
         out = module(feats, mask)
-        assert out.shape == (2, 5, C), f"the output is {tuple(out.shape)}, expected [B, V, D] = {(2, 5, C)}"
+        assert out.shape == (2, V, C), f"the output is {tuple(out.shape)}, expected [B, V, D] = {(2, V, C)}"
         assert torch.isfinite(out.float()).all(), "the output has NaN or infinite values"
         return out
 

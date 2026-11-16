@@ -196,6 +196,101 @@ class DepthRoutesControl(DepthRoutes):
     use_depth = False
 
 
+@register("global_attention")
+class GlobalAttention(Aggregator):
+    """GenRecon's own global refinement of the aggregator (aggregation_net.py, use_self_attention), which the
+    released model has switched off. After the fusion, one self-attention layer runs over all voxels of a chunk:
+
+        f = f + output_layer(self_attention(f))
+
+    4 heads, 3D rotary positions of the voxels' grid indices, RMS-normalised queries and keys, full attention over
+    the resolution^3 = 4096 voxels. output_layer starts at zero, so the variant starts exactly at GenRecon. The
+    layers carry GenRecon's names (self_attention.to_qkv, ..., output_layer), so its weights load into GenRecon's
+    aggregator built with use_self_attention. The whole aggregator trains, as in the baseline.
+
+    The attention needs a whole chunk's grid at once, in GenRecon's voxel order (x, then y, then z). In training
+    every forward is one chunk. GenRecon's full-scene pipeline instead fuses the whole scene's grid in batches of
+    voxels and then cuts out the chunks, so mesh.py sets refine_in_forward = False and calls refine() on every
+    chunk's cut.
+    """
+
+    num_heads = 4
+    rope_freq = (1.0, 10000.0)
+    refine_in_forward = True
+
+    class RMSNorm(nn.Module):
+        """GenRecon's MultiHeadRMSNorm."""
+
+        def __init__(self, dim, heads):
+            super().__init__()
+            self.scale = dim**0.5
+            self.gamma = nn.Parameter(torch.ones(heads, dim))
+
+        def forward(self, x):
+            return (torch.nn.functional.normalize(x.float(), dim=-1) * self.gamma * self.scale).to(x.dtype)
+
+    class SelfAttention(nn.Module):
+        """GenRecon's MultiHeadAttention(type="self", attn_mode="full", use_rope=True, qk_rms_norm=True)."""
+
+        def __init__(self, channels, num_heads):
+            super().__init__()
+            self.num_heads = num_heads
+            self.to_qkv = nn.Linear(channels, 3 * channels)
+            self.q_rms_norm = GlobalAttention.RMSNorm(channels // num_heads, num_heads)
+            self.k_rms_norm = GlobalAttention.RMSNorm(channels // num_heads, num_heads)
+            self.to_out = nn.Linear(channels, channels)
+
+        @staticmethod
+        def rotate(x, phases):  # GenRecon's RotaryPositionEmbedder.apply_rotary_embedding
+            x_complex = torch.view_as_complex(x.float().reshape(*x.shape[:-1], -1, 2))
+            return torch.view_as_real(x_complex * phases.unsqueeze(-2)).reshape(*x.shape).to(x.dtype)
+
+        def forward(self, x, phases):
+            B, L, C = x.shape
+            q, k, v = self.to_qkv(x).reshape(B, L, 3, self.num_heads, -1).unbind(dim=2)  # [B, L, H, C / H]
+            q, k = self.rotate(self.q_rms_norm(q), phases), self.rotate(self.k_rms_norm(k), phases)
+            h = torch.nn.functional.scaled_dot_product_attention(*(t.transpose(1, 2) for t in (q, k, v)))
+            return self.to_out(h.transpose(1, 2).reshape(B, L, C))
+
+    def __init__(self, base):
+        super().__init__(base)
+        self.resolution = base.resolution
+        self.self_attention = self.SelfAttention(self.channels, self.num_heads)
+        self.output_layer = zero_linear(self.channels, self.channels, bias=True)
+        self._phases = None  # complex, so not a buffer: casting the module to bfloat16 would drop the imaginary part
+
+    def rope_phases(self, device):
+        """[R^3, head_dim / 2] complex phases of the voxels' grid indices (GenRecon's RotaryPositionEmbedder with 3
+        axes: head_dim // 6 frequencies per axis, the rest padded with phase 0)."""
+        if self._phases is None or self._phases.device != torch.device(device):
+            R, head_dim = self.resolution, self.channels // self.num_heads
+            coords = torch.stack(torch.meshgrid(*[torch.arange(R)] * 3, indexing="ij"), dim=-1).reshape(-1, 3)
+            n = head_dim // 2 // 3
+            freqs = self.rope_freq[0] / self.rope_freq[1] ** (torch.arange(n, dtype=torch.float32) / max(n, 1))
+            angles = torch.outer(coords.reshape(-1).float(), freqs).reshape(R**3, 3 * n)
+            angles = torch.cat([angles, angles.new_zeros(R**3, head_dim // 2 - 3 * n)], dim=-1)
+            self._phases = torch.polar(torch.ones_like(angles), angles).to(device)
+        return self._phases
+
+    def refine(self, f):
+        """f [B, R^3, D], the fused features of whole chunks -> f + output_layer(self_attention(f))."""
+        assert f.shape[1] == self.resolution**3, \
+            f"global_attention needs a whole chunk ({self.resolution}^3 voxels), got {f.shape[1]} voxels"
+        return f + self.output_layer(self.self_attention(f, self.rope_phases(f.device)))
+
+    def forward(self, feats, mask, camera_emb=None):
+        out = super().forward(feats, mask, camera_emb)
+        return self.refine(out) if self.refine_in_forward else out
+
+
+@register("global_attention_only")
+class GlobalAttentionOnly(GlobalAttention):
+    """global_attention with only the attention training: GenRecon's fusion MLPs stay frozen, so what the run gains
+    over its step 0 comes from the global refinement alone."""
+
+    train_only = ("self_attention.", "output_layer.")
+
+
 if __name__ == "__main__":  # python variants.py [NAME ...]: tries the named variants, or all of them
     import sys
 

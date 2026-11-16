@@ -81,6 +81,22 @@ The same with the true depth, as the limit of what the depth model can give (a b
 BENCH=2026-11-15_overfit10_true_depth CUES=depth_cues_true sbatch experiments/genrecon_mlp_bench/run.sbatch depth_routes_all
 ```
 
+### Global attention: GenRecon's own refinement
+
+GenRecon's aggregator has an optional global refinement (`use_self_attention` in
+`papers/GenRecon/genrecon/modules/cond_3D/aggregation_net.py`), switched off in the released model: after the
+views are fused, one self-attention layer over all 4096 voxels of a chunk (4 heads, 3D rotary positions,
+RMS-normalised queries and keys), added through an output layer that starts at zero. No depth.
+
+| Variant | Trains |
+| --- | --- |
+| `global_attention` | the whole aggregator with the attention, as the baseline trains the aggregator |
+| `global_attention_only` | only the attention; GenRecon's fusion stays frozen, so the gain over step 0 is the attention's |
+
+The layers are GenRecon's (same output, same parameter names), so trained weights load into GenRecon's aggregator
+built with `use_self_attention`. The attention needs a whole chunk: `mesh.py` applies it to every chunk's cut of
+the scene's fused grid, since GenRecon's full-scene pipeline fuses the scene in batches of voxels.
+
 ## Run it
 
 Once, on the cluster: `uv pip install --python papers/GenRecon/.venv/bin/python wandb`, then
