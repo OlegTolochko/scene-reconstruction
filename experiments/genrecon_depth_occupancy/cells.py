@@ -127,37 +127,46 @@ def surface_cells(depths: list[np.ndarray], rotations: np.ndarray, translations:
     return cells[views >= min_views]
 
 
-def carve(pred: np.ndarray, depths: list[np.ndarray], rotations: np.ndarray, translations: np.ndarray, K: np.ndarray, lay: dict, min_views: int) -> np.ndarray:
-    """Stage 1's cells without the ones that at least min_views views see past."""
+def views_past(cells: np.ndarray, depths: list[np.ndarray], rotations: np.ndarray, translations: np.ndarray, K: np.ndarray, lay: dict) -> np.ndarray:
+    """For each cell, the number of views that see past it: its centre lies CARVE_MARGIN cells in front of the depth."""
     height, width = depths[0].shape
-    centres = lay["origin"] + (pred + 0.5) * lay["cell"]
-    views = np.zeros(len(pred), dtype=int)
+    centres = lay["origin"] + (cells + 0.5) * lay["cell"]
+    views = np.zeros(len(cells), dtype=int)
     for depth, rotation, translation in zip(depths, rotations, translations):
         u, v, z, inside = project(centres, rotation, translation, K, width, height)
-        observed = np.full(len(pred), np.nan)
+        observed = np.full(len(cells), np.nan)
         observed[inside] = depth[v[inside].astype(int), u[inside].astype(int)]
         with np.errstate(invalid="ignore"):
             views += z < observed - CARVE_MARGIN * lay["cell"]  # NaN (outside, no depth, edge) compares False
-    return pred[views < min_views]
+    return views
+
+
+def carve(pred: np.ndarray, depths: list[np.ndarray], rotations: np.ndarray, translations: np.ndarray, K: np.ndarray, lay: dict, min_views: int) -> np.ndarray:
+    """Stage 1's cells without the ones that at least min_views views see past."""
+    return pred[views_past(pred, depths, rotations, translations, K, lay) < min_views]
+
+
+def load_depths(scene: str, n: int, model: str) -> tuple:
+    """Depth of the n input views from model ("scan", "vggt_omega_depth" or "solv3r_depth"), COLMAP-scaled for the
+    predicted ones, with the views' rotations, translations and K at the depth's resolution."""
+    frames = json.loads((ROOT / f"data/scannetpp/eval_inputs/{n}views/{scene}/dslr/nerfstudio/transforms_undistorted.json").read_text())["frames"]
+    names = sorted(f["file_path"] for f in frames)
+    if model == "scan":
+        rotations, translations, K = cameras(scene, names, SCAN_WIDTH)
+        return scan_depth(scene, rotations, translations, K, SCAN_WIDTH, SCAN_HEIGHT), rotations, translations, K
+    prediction = np.load(ROOT / f"outputs/{model}/{n}views/{scene}.npz")
+    if list(prediction["names"]) != names:
+        raise RuntimeError(f"{scene}: the predicted views differ from the baseline's")
+    rotations, translations, K = cameras(scene, names, prediction["depth"].shape[2])
+    return colmap_scaled_depth(scene, prediction["depth"], names, rotations, translations, K), rotations, translations, K
 
 
 def edit(scene: str, n: int, source: str) -> dict:
     run_dir = BASELINE / f"{n}views" / scene
     lay = layout(run_dir)
-    frames = json.loads((ROOT / f"data/scannetpp/eval_inputs/{n}views/{scene}/dslr/nerfstudio/transforms_undistorted.json").read_text())["frames"]
-    names = sorted(f["file_path"] for f in frames)
-    if source in ("scan", "carve_scan"):
-        width, height = SCAN_WIDTH, SCAN_HEIGHT
-        rotations, translations, K = cameras(scene, names, width)
-        depths = scan_depth(scene, rotations, translations, K, width, height)
-    else:
-        model = "solv3r_depth" if source.endswith("_solv3r") else "vggt_omega_depth"
-        prediction = np.load(ROOT / f"outputs/{model}/{n}views/{scene}.npz")
-        if list(prediction["names"]) != names:
-            raise RuntimeError(f"{scene}: the predicted views differ from the baseline's")
-        height, width = prediction["depth"].shape[1:]
-        rotations, translations, K = cameras(scene, names, width)
-        depths = colmap_scaled_depth(scene, prediction["depth"], names, rotations, translations, K)
+    model = "scan" if source in ("scan", "carve_scan") else "solv3r_depth" if source.endswith("_solv3r") else "vggt_omega_depth"
+    depths, rotations, translations, K = load_depths(scene, n, model)
+    height, width = depths[0].shape
     if source.startswith("carve"):
         cells = carve(predicted_cells(run_dir, lay), depths, rotations, translations, K, lay, MIN_VIEWS[source])
         return {"all": cells.astype(np.int16), "visible": cells.astype(np.int16), "centres": lay["centres"]}
