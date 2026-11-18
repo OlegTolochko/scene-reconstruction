@@ -21,6 +21,8 @@
 
 set -euo pipefail
 cd ~/scene-reconstruction
+# DINOv3 is gated: the token and cached weights live here, and a non-login submit shell does not set it
+export HF_HOME=${HF_HOME:-/scratch/vc16/pr26rb06/.cache/huggingface}
 VARIANT=${1:-solv3r}
 VIEWS=${VIEWS:-32}
 SCENES=${SCENES:-$(ls "data/scannetpp/eval_inputs/${VIEWS}views")}
