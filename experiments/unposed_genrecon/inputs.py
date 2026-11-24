@@ -2,12 +2,14 @@
 
 import glob
 import os
+import shutil
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")
+FRAMES_DIR = Path(__file__).resolve().parents[2] / "outputs/unposed_genrecon/frames"  # frames of video inputs
 
 
 def extract_frames(video_path: str, num_frames: int, out_dir: str) -> list[str]:
@@ -35,13 +37,19 @@ def pick_evenly(paths: list[str], num_images: int) -> list[str]:
     return [paths[i] for i in indices]
 
 
-def select_images(input_path: str, num_images: int, tmp_dir: str) -> list[str]:
-    """num_images evenly spaced images of a folder, or frames of a video saved to tmp_dir."""
+def select_images(input_path: str, num_images: int) -> list[str]:
+    """num_images evenly spaced images of a folder, or frames of a video saved to FRAMES_DIR/<name>/.
+
+    Video frames are kept because convert.py reads them again at full resolution.
+    """
     if os.path.isdir(input_path):
         all_names = sorted(p for p in glob.glob(os.path.join(input_path, "*")) if p.lower().endswith(IMAGE_EXTS))
         image_names = pick_evenly(all_names, num_images)
     else:
-        image_names = extract_frames(input_path, num_images, tmp_dir)
+        out_dir = FRAMES_DIR / scene_name(input_path)
+        shutil.rmtree(out_dir, ignore_errors=True)  # frames of an earlier run may differ in count
+        out_dir.mkdir(parents=True)
+        image_names = extract_frames(input_path, num_images, str(out_dir))
     if not image_names:
         raise SystemExit(f"No images found in {input_path}")
     return image_names

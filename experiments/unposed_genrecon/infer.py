@@ -1,5 +1,4 @@
 import argparse
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -34,18 +33,17 @@ def main() -> None:
     device = get_device()
     print(f"Device: {device}")
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        image_names = select_images(args.input, args.num_images, tmp_dir)
-        print(f"Images: {len(image_names)}")
+    image_names = select_images(args.input, args.num_images)
+    print(f"Images: {len(image_names)}")
 
-        model = VGGTOmega().eval()
-        model.load_state_dict(torch.load(CHECKPOINT, map_location="cpu"))
-        model = model.to(device)
+    model = VGGTOmega().eval()
+    model.load_state_dict(torch.load(CHECKPOINT, map_location="cpu"))
+    model = model.to(device)
 
-        images = load_and_preprocess_images(image_names, image_resolution=512).to(device)
+    images = load_and_preprocess_images(image_names, image_resolution=512).to(device)
 
-        with torch.inference_mode():
-            predictions = model(images)
+    with torch.inference_mode():
+        predictions = model(images)
 
     extrinsics, intrinsics = encoding_to_camera(
         predictions["pose_enc"],
