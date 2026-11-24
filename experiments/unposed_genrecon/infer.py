@@ -33,7 +33,10 @@ def main() -> None:
     device = get_device()
     print(f"Device: {device}")
 
-    image_names = select_images(args.input, args.num_images)
+    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}.npz"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Video frames go next to the .npz, so runs of different models on the same video don't share them
+    image_names = select_images(args.input, args.num_images, output.with_name(f"{output.stem}_frames"))
     print(f"Images: {len(image_names)}")
 
     model = VGGTOmega().eval()
@@ -61,8 +64,6 @@ def main() -> None:
     def to_np(t: torch.Tensor) -> np.ndarray:
         return t[0].detach().float().cpu().numpy()  # drop the batch dimension
 
-    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}.npz"
-    output.parent.mkdir(parents=True, exist_ok=True)
     
     np.savez(
         output,

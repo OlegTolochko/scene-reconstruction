@@ -30,7 +30,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="Where to save the .npz (default: outputs/unposed_genrecon/<name>_solv3r.npz).")
     args = parser.parse_args()
 
-    image_names = select_images(args.input, args.num_images)
+    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}_solv3r.npz"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Video frames go next to the .npz, so runs of different models on the same video don't share them
+    image_names = select_images(args.input, args.num_images, output.with_name(f"{output.stem}_frames"))
     print(f"Images: {len(image_names)}")
     images = load_images(image_names)  # (S, 3, H, W) in [0, 1]
 
@@ -44,8 +47,6 @@ def main() -> None:
         return t.detach().float().cpu().numpy()
 
     print(f"depth {tuple(predictions['depth'].shape)}, extrinsics {tuple(extrinsics.shape)}, intrinsics {tuple(intrinsics.shape)}")
-    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}_solv3r.npz"
-    output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         output,
         image_paths=np.array(image_names),
