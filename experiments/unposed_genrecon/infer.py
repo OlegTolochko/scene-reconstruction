@@ -1,5 +1,4 @@
 import argparse
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -34,18 +33,20 @@ def main() -> None:
     device = get_device()
     print(f"Device: {device}")
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        image_names = select_images(args.input, args.num_images, tmp_dir)
-        print(f"Images: {len(image_names)}")
+    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}.npz"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Video frames go next to the .npz, so runs of different models on the same video don't share them
+    image_names = select_images(args.input, args.num_images, output.with_name(f"{output.stem}_frames"))
+    print(f"Images: {len(image_names)}")
 
-        model = VGGTOmega().eval()
-        model.load_state_dict(torch.load(CHECKPOINT, map_location="cpu"))
-        model = model.to(device)
+    model = VGGTOmega().eval()
+    model.load_state_dict(torch.load(CHECKPOINT, map_location="cpu"))
+    model = model.to(device)
 
-        images = load_and_preprocess_images(image_names, image_resolution=512).to(device)
+    images = load_and_preprocess_images(image_names, image_resolution=512).to(device)
 
-        with torch.inference_mode():
-            predictions = model(images)
+    with torch.inference_mode():
+        predictions = model(images)
 
     extrinsics, intrinsics = encoding_to_camera(
         predictions["pose_enc"],
@@ -63,8 +64,6 @@ def main() -> None:
     def to_np(t: torch.Tensor) -> np.ndarray:
         return t[0].detach().float().cpu().numpy()  # drop the batch dimension
 
-    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}.npz"
-    output.parent.mkdir(parents=True, exist_ok=True)
     
     np.savez(
         output,

@@ -49,7 +49,7 @@ def main():
              "--ss_ckpt", CKPT / "sparse_structure/ckpts/sparse_structure.pt",
              "--shape_ckpt", CKPT / "shape_slat/ckpts/shape_slat.pt",
              "--tex_ckpt", CKPT / "texture_slat/ckpts/texture_slat.pt",
-             "--num_imgs_per_scene", "999", "--chunk_size_factor", "1.08",
+             "--num_imgs_per_scene", "32", "--chunk_size_factor", "1.08",
              "--stat_std_ratio", "3.0", "--radius_nb_points", "7", "--radius_m", "0.2",
              "--pipeline_config", "configs/pipelines/texture.json", "--proj_batch_voxels", "2048"],
             cwd=GENRECON, env=env)

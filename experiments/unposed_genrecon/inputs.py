@@ -2,6 +2,7 @@
 
 import glob
 import os
+import shutil
 from pathlib import Path
 
 import cv2
@@ -15,7 +16,7 @@ def extract_frames(video_path: str, num_frames: int, out_dir: str) -> list[str]:
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     paths = []
-    for i, index in enumerate(np.linspace(0, total - 1, num_frames).astype(int)):
+    for i, index in enumerate(np.linspace(0, total - 1, min(num_frames, total)).astype(int)):
         cap.set(cv2.CAP_PROP_POS_FRAMES, index)
         ok, frame = cap.read()
         if not ok:
@@ -35,13 +36,18 @@ def pick_evenly(paths: list[str], num_images: int) -> list[str]:
     return [paths[i] for i in indices]
 
 
-def select_images(input_path: str, num_images: int, tmp_dir: str) -> list[str]:
-    """num_images evenly spaced images of a folder, or frames of a video saved to tmp_dir."""
+def select_images(input_path: str, num_images: int, frames_dir: Path) -> list[str]:
+    """num_images evenly spaced images of a folder, or frames of a video saved to frames_dir.
+
+    Video frames are kept because convert.py reads them again at full resolution.
+    """
     if os.path.isdir(input_path):
         all_names = sorted(p for p in glob.glob(os.path.join(input_path, "*")) if p.lower().endswith(IMAGE_EXTS))
         image_names = pick_evenly(all_names, num_images)
     else:
-        image_names = extract_frames(input_path, num_images, tmp_dir)
+        shutil.rmtree(frames_dir, ignore_errors=True)  # frames of an earlier run may differ in count
+        frames_dir.mkdir(parents=True)
+        image_names = extract_frames(input_path, num_images, str(frames_dir))
     if not image_names:
         raise SystemExit(f"No images found in {input_path}")
     return image_names

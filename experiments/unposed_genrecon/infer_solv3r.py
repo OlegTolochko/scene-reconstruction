@@ -8,7 +8,6 @@ Runs in Solv3R's environment. Differences from infer.py's VGGT-Omega output:
 """
 
 import argparse
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -31,10 +30,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="Where to save the .npz (default: outputs/unposed_genrecon/<name>_solv3r.npz).")
     args = parser.parse_args()
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        image_names = select_images(args.input, args.num_images, tmp_dir)
-        print(f"Images: {len(image_names)}")
-        images = load_images(image_names)  # (S, 3, H, W) in [0, 1]
+    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}_solv3r.npz"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Video frames go next to the .npz, so runs of different models on the same video don't share them
+    image_names = select_images(args.input, args.num_images, output.with_name(f"{output.stem}_frames"))
+    print(f"Images: {len(image_names)}")
+    images = load_images(image_names)  # (S, 3, H, W) in [0, 1]
 
     model = Solv3R.from_pretrained(str(CHECKPOINT))
     ctx = model.encode(images)  # the first image defines the world frame, as for VGGT-Omega
@@ -46,8 +47,6 @@ def main() -> None:
         return t.detach().float().cpu().numpy()
 
     print(f"depth {tuple(predictions['depth'].shape)}, extrinsics {tuple(extrinsics.shape)}, intrinsics {tuple(intrinsics.shape)}")
-    output = args.output or OUTPUT_DIR / f"{scene_name(args.input)}_solv3r.npz"
-    output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         output,
         image_paths=np.array(image_names),
