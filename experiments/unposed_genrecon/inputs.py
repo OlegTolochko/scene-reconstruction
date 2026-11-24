@@ -15,7 +15,7 @@ def extract_frames(video_path: str, num_frames: int, out_dir: str) -> list[str]:
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     paths = []
-    for i, index in enumerate(np.linspace(0, total - 1, num_frames).astype(int)):
+    for i, index in enumerate(np.linspace(0, total - 1, min(num_frames, total)).astype(int)):
         cap.set(cv2.CAP_PROP_POS_FRAMES, index)
         ok, frame = cap.read()
         if not ok:
