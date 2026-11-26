@@ -1,37 +1,32 @@
-"""GenRecon's reconstruct_scene.py with stage 1 (sparse structure) and stage 3 (texture) latent-inpainted around what
-the input views observed. For scenes made by experiments/unposed_genrecon (convert.py), whose cameras and depth come
-from Solv3R or VGGT-Omega.
+"""GenRecon's reconstruct_scene.py with stage 2 (shape) latent-inpainted where the input views' depth knows the
+surface. For scenes made by experiments/unposed_genrecon (convert.py), whose cameras and depth come from Solv3R or
+VGGT-Omega.
 
-Both stages are inpainted RePaint-style, as experiments/genrecon_inpaint_occupancy (branch feat/stage1-inpainting)
-does for stage 1: what the views know is encoded with the stage's VAE encoder, and after every Euler step (and the
+Stage 2 is inpainted RePaint-style, as experiments/genrecon_inpaint_occupancy (branch feat/stage1-inpainting) does
+for stage 1: what the views know is encoded with the stage's VAE encoder, and after every Euler step (and the
 MultiDiffusion averaging) the pinned latent voxels are reset to that encoding, noised to the next time with the
-chunk's own starting noise. The DiT generates the rest. Stage 2 (shape) is untouched.
+chunk's own starting noise. The DiT generates the rest. Stages 1 and 3 are untouched.
 
-Stage 1, --stages ss
-    Every cell of the sparse-structure grid (32 per chunk side) is occupied (depth points from MIN_VIEWS images),
-    free (MIN_VIEWS images see CARVE_MARGIN cells past it) or unknown, from the depth in the .npz of the input
-    images. The occupied cells are encoded with TRELLIS's sparse-structure encoder. A latent voxel (2 cells per
-    axis) is pinned when the depth knows all its cells, shrunk by one latent voxel, because the encoder reads unknown
-    cells as empty.
-
-Stage 3, --stages tex
-    1. Stage 3 is sampled as usual (pass A), and the shape and texture are decoded.
-    2. Each fine voxel (512 per chunk side) gets the mean colour of the images that see it: the voxel lies inside
-       the image and at most VISIBILITY_TOLERANCE fine voxels behind the depth of the generated mesh, rendered from
-       that camera. It is observed when MIN_VIEWS images see it and their colours agree (MAX_COLOUR_STD).
-    3. Pass A's texture with the observed base colours pasted in is encoded with TRELLIS.2's texture encoder.
-       Unobserved voxels keep pass A's colours, so the encoder never reads holes.
-    4. Stage 3 is sampled again from pass A's starting noise, with the latent voxels pinned whose fine voxels are
-       at least PIN_SHARE observed.
+    1. Stage 2 is sampled as usual (pass A) and decoded to the shape decoder's fine voxels (FINE_PER_LATENT per
+       latent voxel and axis, 512 per chunk side): a dual vertex and three edge-crossing flags each.
+    2. The depth maps of the input images are fused into a TSDF (Open3D, TSDF_PER_CHUNK voxels per chunk side) and
+       its surface is turned into fine voxels with mesh_to_flexible_dual_grid, as get_slats.py does for the
+       training meshes.
+    3. A latent voxel is known when MIN_VIEWS images see all of it: every point of a SUBSAMPLE^3 grid in it lies
+       inside the image and at most TRUNCATION TSDF voxels behind the depth (so free space counts). The known latent
+       voxels are shrunk by one latent voxel, as stage 1's pinning is.
+    4. The target is the depth's fine voxels in the known latent voxels and pass A's elsewhere, so the encoder never
+       reads holes. It is encoded with TRELLIS.2's shape encoder.
+    5. Stage 2 is sampled again from pass A's starting noise (pass B), with the known latent voxels pinned in which
+       the target has fine voxels. A known latent voxel the depth sees as empty has no encoding and is left free.
 
 Counts are per image, not per crop: GenRecon cuts every wide image into two overlapping square crops.
 
-Writes inpainting.json (shares of pinned cells and voxels) and observed_colours.ply (the observed fine voxels with
-their colours, in the frame of mesh.ply) next to GenRecon's outputs. Patches MultiDiffusionOrchestrator.sample and
+Writes inpainting.json (shares of known and pinned latent voxels) and depth_surface.ply (the TSDF surface, in the
+frame of mesh.ply) next to GenRecon's outputs. Patches MultiDiffusionOrchestrator.sample and
 FullSceneImagesTo3DPipeline.run; GenRecon itself is not modified. Runs in GenRecon's environment, from papers/GenRecon:
 
-    .venv/bin/python ../../experiments/genrecon_latent_inpainting/inject.py --npz NPZ --stages ss,tex \\
-        <reconstruct_scene.py arguments>
+    .venv/bin/python ../../experiments/genrecon_latent_inpainting/inject.py --npz NPZ <reconstruct_scene.py arguments>
 """
 
 import argparse
@@ -40,8 +35,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import nvdiffrast.torch as dr
 import o_voxel
+import open3d as o3d
 import torch
 import torch.nn.functional as F
 import tqdm
@@ -51,27 +46,23 @@ from scipy.ndimage import binary_erosion, maximum_filter, minimum_filter
 sys.path.insert(0, str(Path.cwd()))  # papers/GenRecon
 import reconstruct_scene  # noqa: E402
 from genrecon import models  # noqa: E402
+from genrecon.models.sc_vaes.sparse_unet_vae import SparseUnetVaeDecoder  # noqa: E402
 from genrecon.modules.sparse import SparseTensor  # noqa: E402
 from genrecon.pipelines.full_scene_images_to_3d import FullSceneImagesTo3DPipeline  # noqa: E402
+from genrecon.pipelines.joint_decode import _merge_chunk_slats  # noqa: E402
 from genrecon.pipelines.samplers.multi_diff_orchestrator import MultiDiffusionOrchestrator  # noqa: E402
 
-SS_ENCODER = "microsoft/TRELLIS-image-large/ckpts/ss_enc_conv3d_16l8_fp16"
-TEX_ENCODER = "microsoft/TRELLIS.2-4B/ckpts/tex_enc_next_dc_f16c32_fp16"
-R = 32  # sparse-structure cells per chunk side
-FINE_PER_LATENT = 16  # fine voxels per texture latent voxel and axis
+SHAPE_ENCODER = "microsoft/TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16"
+FINE_PER_LATENT = 16  # fine voxels per shape latent voxel and axis
 
-MIN_VIEWS = 2  # images that must observe a cell or voxel
+MIN_VIEWS = 2  # images that must see all of a latent voxel for it to be known
 EDGE_RATIO = 0.1  # depth pixels whose 3x3 depth range exceeds this share of their depth are dropped
-CARVE_MARGIN = 1.5  # cells: a free cell's centre lies this far in front of the depth
-VISIBILITY_TOLERANCE = 3  # fine voxels: how far behind the rendered depth a voxel may lie and still be seen
-MAX_COLOUR_STD = 0.1  # colours in [0, 1]: an observed voxel's images agree at least this well
-PIN_SHARE = 0.5  # share of a texture latent voxel's fine voxels that must be observed to pin it
-NEAR, FAR = 0.05, 100.0  # metres, rasterizer clip planes
+TSDF_PER_CHUNK = 128  # TSDF voxels per chunk side
+TRUNCATION = 3  # TSDF voxels: the TSDF's truncation, and how far behind the depth a point still counts as seen
+SUBSAMPLE = 4  # points per latent voxel and axis that are tested for being seen
+NEAR = 0.05  # depth units: points closer to a camera than this are not seen by it
 
 STATE = {}  # the pipeline and its SelectedImages, stored by the patched run
-
-
-# ── Shared ───────────────────────────────────────────────────────────────────
 
 
 def views(out: Path) -> dict[str, list[int]]:
@@ -82,40 +73,25 @@ def views(out: Path) -> dict[str, list[int]]:
     return groups
 
 
-def grid_layout(relative_transl: list[torch.Tensor], res: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Chunk offsets in a scene grid of res voxels per chunk side, the grid's shape, and the smallest chunk centre,
-    as FullSceneImagesTo3DPipeline._global_grid_layout."""
-    rel = torch.stack([t.float().cpu() for t in relative_transl]).numpy()
-    mins = rel.min(axis=0)
-    offsets = np.round((rel - mins) * res).astype(int)
-    return offsets, offsets.max(axis=0) + res, mins
-
-
-def sample_loop(orchestrator, model, chunks, cond, neg_cond, relative_transl, t_pairs, guidance, chunk_kwargs,
-                aggregate, verbose, desc, pin=None):
-    """MultiDiffusionOrchestrator.sample's loop. pin = (encodings, masks, starting noise) resets the pinned voxels
-    after every step to the encoding, noised to the next time."""
+def sample_loop(orchestrator, model, chunks, cond, neg_cond, relative_transl, t_pairs, guidance, aggregate, verbose,
+                desc, pin=None):
+    """MultiDiffusionOrchestrator.sample's loop for sparse latents. pin = (encodings, masks, starting noise) resets
+    the pinned voxels after every step to the encoding, noised to the next time."""
     sigma_min = orchestrator.sampler.sigma_min
     for t, t_prev in tqdm.tqdm(t_pairs, desc=desc, disable=not verbose):
         for i in range(len(chunks)):
-            extra = chunk_kwargs[i] if chunk_kwargs is not None else {}
             v = orchestrator.sampler._inference_model(model, chunks[i], t, cond=cond[i], neg_cond=neg_cond[i],
-                                                      **guidance, **extra)
+                                                      **guidance)
             chunks[i] = chunks[i] - (t - t_prev) * v
         chunks = aggregate(chunks, relative_transl, model.resolution)
         if pin is not None:
             s = sigma_min + (1 - sigma_min) * t_prev
-            pinned = []
-            for c, x0, m, e in zip(chunks, *pin):
-                if isinstance(c, torch.Tensor):
-                    pinned.append(m * ((1 - t_prev) * x0 + s * e) + (1 - m) * c)
-                else:
-                    pinned.append(c.replace(m * ((1 - t_prev) * x0 + s * e.feats) + (1 - m) * c.feats))
-            chunks = pinned
+            chunks = [c.replace(m * ((1 - t_prev) * x0 + s * e.feats) + (1 - m) * c.feats)
+                      for c, x0, m, e in zip(chunks, *pin)]
     return chunks
 
 
-# ── Stage 1: cells from the depth ────────────────────────────────────────────
+# ── The depth of the input images ────────────────────────────────────────────
 
 
 def drop_edges(depth: np.ndarray) -> np.ndarray:
@@ -123,217 +99,202 @@ def drop_edges(depth: np.ndarray) -> np.ndarray:
     return np.where(maximum_filter(depth, 3) - minimum_filter(depth, 3) < EDGE_RATIO * depth, depth, np.nan)
 
 
-def depth_cells(npz: Path, out: Path, relative_transl) -> tuple[np.ndarray, np.ndarray]:
-    """Occupied and free cells of the scene's cell grid, from the depth of the input images.
-
-    The cameras are SelectedImages' extrinsics: OpenCV, from the chunk-0 frame (unit: chunk size) to camera
-    coordinates in the depth's unit. A cell's centre in the chunk-0 frame is corner + (index + 0.5) / R.
-    """
+def input_views(npz: Path, out: Path) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Per input image: depth (NaN where unknown), intrinsics in pixels at the depth's resolution, and the
+    extrinsics from the chunk-0 frame (unit: chunk size) to camera coordinates in the depth's unit (OpenCV)."""
     sel = STATE["sel"]
-    groups = views(out)
     prediction = np.load(npz)
-    frames = [int(Path(name).stem) for name in groups]  # convert.py names frame i of the .npz "{i:04d}.png"
-    depth_all = prediction["depth"]  # [S, H, W, 1]
-    depths = [drop_edges(depth_all[f, ..., 0].astype(np.float64)) for f in frames]
-    Ks = prediction["intrinsics"][frames].astype(np.float64)  # pixels, at the depth's resolution
-    exts = [sel.scene_extrinsics_c0[g[0]].double().cpu().numpy() for g in groups.values()]
-    height, width = depths[0].shape
-
-    offsets, shape, mins = grid_layout(relative_transl, R)
-    corner = mins - 0.5
-    in_chunk = np.zeros(shape, dtype=bool)
-    for x, y, z in offsets:
-        in_chunk[x:x + R, y:y + R, z:z + R] = True
-
-    occupied_views = np.zeros(shape, dtype=int)
-    u, v = np.meshgrid(np.arange(width) + 0.5, np.arange(height) + 0.5)
-    for depth, K, ext in zip(depths, Ks, exts):
-        valid = np.isfinite(depth) & (depth > NEAR)
-        cam = np.stack([(u[valid] - K[0, 2]) / K[0, 0], (v[valid] - K[1, 2]) / K[1, 1], np.ones(valid.sum())], -1)
-        cam = cam * depth[valid, None]
-        points = (cam - ext[:3, 3]) @ np.linalg.inv(ext[:3, :3]).T  # chunk-0 frame
-        cells = np.floor((points - corner) * R).astype(int)
-        cells = cells[((cells >= 0) & (cells < shape)).all(axis=1)]
-        cells = np.unique(cells[in_chunk[tuple(cells.T)]], axis=0)
-        occupied_views[tuple(cells.T)] += 1
-    occupied = occupied_views >= MIN_VIEWS
-
-    cells = np.argwhere(in_chunk & ~occupied)
-    centres = corner + (cells + 0.5) / R
-    past = np.zeros(len(cells), dtype=int)
-    for depth, K, ext in zip(depths, Ks, exts):
-        cam = centres @ ext[:3, :3].T + ext[:3, 3]
-        z = cam[:, 2]
-        with np.errstate(divide="ignore", invalid="ignore"):
-            px, py = np.floor(K[0, 0] * cam[:, 0] / z + K[0, 2]), np.floor(K[1, 1] * cam[:, 1] / z + K[1, 2])
-        inside = (z > NEAR) & (px >= 0) & (px < width) & (py >= 0) & (py < height)
-        observed = np.full(len(cells), np.nan)
-        observed[inside] = depth[py[inside].astype(int), px[inside].astype(int)]
-        cell_size = np.linalg.norm(ext[0, :3]) / R  # a chunk-0 unit is one chunk size
-        with np.errstate(invalid="ignore"):
-            past += z < observed - CARVE_MARGIN * cell_size  # NaN (outside, no depth, edge) compares False
-    free = np.zeros(shape, dtype=bool)
-    free[tuple(cells[past >= MIN_VIEWS].T)] = True
-    covered = in_chunk.sum()
-    STATE["stats"]["ss_occupied_cells"] = float(occupied.sum() / covered)
-    STATE["stats"]["ss_free_cells"] = float(free.sum() / covered)
-    print(f"[inpaint] cells: {occupied.sum() / covered:.1%} occupied, {free.sum() / covered:.1%} free", flush=True)
-    return occupied, free
-
-
-@torch.no_grad()
-def ss_pins(occupied: np.ndarray, free: np.ndarray, relative_transl, R_lat: int, chunks: list[torch.Tensor]):
-    """Per chunk, the encoding of the occupied cells and the mask of pinned latent voxels."""
-    f = R // R_lat  # cells per latent voxel and axis
-    lx, ly, lz = (s // f for s in occupied.shape)
-    known = (occupied | free).reshape(lx, f, ly, f, lz, f).all(axis=(1, 3, 5))
-    known = binary_erosion(known, np.ones((3, 3, 3), dtype=bool), border_value=1)
-    STATE["stats"]["ss_pinned_latents"] = float(known.mean())
-    print(f"[inpaint] stage 1: pinned {known.mean():.1%} of the scene's latent voxels", flush=True)
-
-    device, dtype = chunks[0].device, chunks[0].dtype
-    encoder = models.from_pretrained(SS_ENCODER).to(device).eval()
-    # the encoder reads occupancy at the decoder's resolution, 2 voxels per cell and axis
-    x = torch.from_numpy(occupied.repeat(2, 0).repeat(2, 1).repeat(2, 2)).float()[None, None].to(device)
-    z = encoder(x).to(dtype)  # [1, 8, lx, ly, lz]
-    del encoder, x
-    torch.cuda.empty_cache()
-    known = torch.from_numpy(known)[None, None].to(device, dtype)
-    offsets, _, _ = grid_layout(relative_transl, R_lat)
-    x0 = [z[:, :, x:x + R_lat, y:y + R_lat, w:w + R_lat] for x, y, w in offsets]
-    masks = [known[:, :, x:x + R_lat, y:y + R_lat, w:w + R_lat] for x, y, w in offsets]
-    return x0, masks
-
-
-# ── Stage 3: colours of the fine voxels ──────────────────────────────────────
-
-
-def render_depth(glctx, vertices: torch.Tensor, faces: torch.Tensor, ext: torch.Tensor, K: torch.Tensor,
-                 size: int) -> torch.Tensor:
-    """Camera depth of the mesh for a square view with normalized intrinsics, inf where it shows no mesh.
-
-    Row r and column c of the result are at v = (r + 0.5) / size and u = (c + 0.5) / size: nvdiffrast's first row is
-    clip y = -1, which is v = 0 here.
-    """
-    cam = vertices @ ext[:3, :3].T + ext[:3, 3]
-    x, y, z = cam.unbind(-1)
-    clip = torch.stack([2 * K[0, 0] * x + (2 * K[0, 2] - 1) * z,
-                        2 * K[1, 1] * y + (2 * K[1, 2] - 1) * z,
-                        (z * (FAR + NEAR) - 2 * FAR * NEAR) / (FAR - NEAR),
-                        z], dim=-1)[None].contiguous()
-    rast, _ = dr.rasterize(glctx, clip, faces, (size, size))
-    depth, _ = dr.interpolate(z[None, :, None].contiguous(), rast, faces)
-    return torch.where(rast[0, ..., 3] > 0, depth[0, ..., 0], torch.full_like(depth[0, ..., 0], float("inf")))
-
-
-@torch.no_grad()
-def observed_colours(points: torch.Tensor, mesh, voxel_size: float, out: Path):
-    """Mean colour of the images that see each point (chunk-0 frame), and whether it counts as observed."""
-    sel = STATE["sel"]
-    device = points.device
-    glctx = dr.RasterizeCudaContext(device=device)
-    vertices, faces = mesh.vertices.float(), mesh.faces.int().contiguous()
-    size = sel.scene_images_512.shape[-1]
-    total, total_sq = torch.zeros(len(points), 3, device=device), torch.zeros(len(points), 3, device=device)
-    count = torch.zeros(len(points), device=device)
+    result = []
     for name, crops in views(out).items():
-        seen = torch.zeros(len(points), dtype=torch.bool, device=device)
-        colour = torch.zeros(len(points), 3, device=device)
-        for i in crops:
-            ext = sel.scene_extrinsics_c0[i].float().to(device)
-            K = sel.scene_intrinsics[i].float().to(device)
-            depth = render_depth(glctx, vertices, faces, ext, K, size)
-            cam = points @ ext[:3, :3].T + ext[:3, 3]
-            z = cam[:, 2]
-            safe = torch.where(z > NEAR, z, torch.ones_like(z))
-            u, v = K[0, 0] * cam[:, 0] / safe + K[0, 2], K[1, 1] * cam[:, 1] / safe + K[1, 2]
-            inside = (z > NEAR) & (u >= 0) & (u < 1) & (v >= 0) & (v < 1) & ~seen
-            px = (u * size).long().clamp(0, size - 1)
-            py = (v * size).long().clamp(0, size - 1)
-            tolerance = VISIBILITY_TOLERANCE * voxel_size * ext[0, :3].norm()  # chunk-0 units to the depth's unit
-            visible = inside & (z <= depth[py, px] + tolerance)
-            idx = visible.nonzero().squeeze(1)
-            if len(idx):
-                image = sel.scene_images_1024[i].float().to(device)[None]  # [1, 3, H, W] in [0, 1]
-                grid = torch.stack([2 * u[idx] - 1, 2 * v[idx] - 1], dim=-1)[None, None]
-                colour[idx] = F.grid_sample(image, grid, align_corners=False)[0, :, 0].T
-            seen |= visible
-        count += seen.float()
-        total += colour
-        total_sq += colour**2
-    mean = total / count.clamp(min=1)[:, None]
-    std = (total_sq / count.clamp(min=1)[:, None] - mean**2).clamp(min=0).sqrt().mean(dim=1)
-    observed = (count >= MIN_VIEWS) & (std < MAX_COLOUR_STD)
-    return mean, observed, count
+        frame = int(Path(name).stem)  # convert.py names frame i of the .npz "{i:04d}.png"
+        depth = drop_edges(prediction["depth"][frame, ..., 0].astype(np.float64))
+        K = prediction["intrinsics"][frame].astype(np.float64)
+        ext = sel.scene_extrinsics_c0[crops[0]].double().cpu().numpy()  # a crop changes only the intrinsics
+        result.append((depth, K, ext))
+    return result
 
 
-def save_colours(points: torch.Tensor, colours: torch.Tensor, out: Path, limit: int = 2_000_000):
-    """The observed fine voxels as a coloured point cloud, in the frame of mesh.ply."""
-    chunk0 = np.array(json.loads((out / "chunk_transforms.json").read_text())["chunks"][0]["M_chunk_to_original"])
-    keep = torch.randperm(len(points), device=points.device)[:limit]
-    p = points[keep].double().cpu().numpy() @ chunk0[:3, :3].T + chunk0[:3, 3]
-    c = (colours[keep].clamp(0, 1) * 255).byte().cpu().numpy()
-    trimesh.PointCloud(p, colors=np.concatenate([c, np.full((len(c), 1), 255, np.uint8)], axis=1)).export(
-        out / "observed_colours.ply")
+def depth_surface(inputs) -> tuple[np.ndarray, np.ndarray]:
+    """The surface of the TSDF fused from the input depth, as vertices (chunk-0 frame) and faces.
+
+    The TSDF lives in the chunk-0 frame scaled to the depth's unit, where the cameras are rigid.
+    """
+    scales = np.array([np.linalg.norm(ext[0, :3]) for _, _, ext in inputs])  # depth units per chunk size
+    s = scales.mean()
+    STATE["stats"]["depth_units_per_chunk"] = [float(scales.min()), float(scales.max())]
+    voxel = s / TSDF_PER_CHUNK
+    volume = o3d.pipelines.integration.ScalableTSDFVolume(
+        voxel_length=voxel, sdf_trunc=TRUNCATION * voxel,
+        color_type=o3d.pipelines.integration.TSDFVolumeColorType.NoColor)
+    for depth, K, ext in inputs:
+        height, width = depth.shape
+        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            o3d.geometry.Image(np.zeros((height, width, 3), dtype=np.uint8)),
+            o3d.geometry.Image(np.nan_to_num(depth, nan=0.0).astype(np.float32)),  # 0: no depth
+            depth_scale=1.0, depth_trunc=float(np.nanmax(depth)) + 1.0, convert_rgb_to_intensity=False)
+        # Open3D puts pixel centres at integer coordinates, the intrinsics here at + 0.5
+        intrinsic = o3d.camera.PinholeCameraIntrinsic(width, height, K[0, 0], K[1, 1], K[0, 2] - 0.5, K[1, 2] - 0.5)
+        extrinsic = np.eye(4)
+        extrinsic[:3, :3] = ext[:3, :3] / s
+        extrinsic[:3, 3] = ext[:3, 3]
+        volume.integrate(rgbd, intrinsic, extrinsic)
+    mesh = volume.extract_triangle_mesh()
+    return np.asarray(mesh.vertices) / s, np.asarray(mesh.triangles)
 
 
 @torch.no_grad()
-def tex_pins(texture: SparseTensor, mesh, aabb: torch.Tensor, res: int, relative_transl, R_lat: int,
-             chunks: list[SparseTensor], out: Path):
-    """Per chunk, the normalized encoding of pass A's texture with the observed colours pasted in, and the mask of
-    pinned latent voxels."""
+def known_latents(inputs, coords: torch.Tensor, corner: torch.Tensor, R_lat: int) -> torch.Tensor:
+    """Whether MIN_VIEWS images see all of each latent voxel (joint coarse coords [N, 3], chunk-0 frame cell
+    corner + coords / R_lat): inside the image and at most TRUNCATION TSDF voxels behind its depth."""
+    device = coords.device
+    j = (torch.arange(SUBSAMPLE, device=device) + 0.5) / SUBSAMPLE
+    sub = torch.stack(torch.meshgrid(j, j, j, indexing="ij"), dim=-1).reshape(-1, 3)
+    points = corner + (coords[:, None, :].float() + sub[None]) / R_lat  # [N, SUBSAMPLE^3, 3]
+    seen = torch.zeros(points.shape[:2], dtype=torch.int32, device=device)
+    for depth, K, ext in inputs:
+        d = torch.from_numpy(np.nan_to_num(depth, nan=-1.0)).float().to(device)  # -1: no depth
+        K, ext = torch.from_numpy(K).float().to(device), torch.from_numpy(ext).float().to(device)
+        cam = points @ ext[:3, :3].T + ext[:3, 3]
+        z = cam[..., 2]
+        safe = torch.where(z > NEAR, z, torch.ones_like(z))
+        px = torch.floor(K[0, 0] * cam[..., 0] / safe + K[0, 2])
+        py = torch.floor(K[1, 1] * cam[..., 1] / safe + K[1, 2])
+        inside = (z > NEAR) & (px >= 0) & (px < d.shape[1]) & (py >= 0) & (py < d.shape[0])
+        observed = d[py.long().clamp(0, d.shape[0] - 1), px.long().clamp(0, d.shape[1] - 1)]
+        margin = TRUNCATION * ext[0, :3].norm() / TSDF_PER_CHUNK  # TSDF voxels to the depth's unit
+        seen += (inside & (observed > 0) & (z <= observed + margin)).int()
+    return (seen >= MIN_VIEWS).all(dim=1)
+
+
+# ── Stage 2 ──────────────────────────────────────────────────────────────────
+
+
+def quantize(vertices: torch.Tensor) -> torch.Tensor:
+    """Dual vertices in the voxel, as get_slats.py stores them for the encoder: clamped to [0, 1], 8 bits."""
+    return (vertices.clamp(0, 1) * 255).round() / 255
+
+
+@torch.no_grad()
+def decode_fine(joint: SparseTensor, res: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """The shape decoder's fine voxels of a joint shape latent: coords [N, 3], dual vertices [N, 3] in the voxel,
+    and edge-crossing flags [N, 3], as joint_decode_shape computes them before extracting the mesh."""
     pipeline = STATE["pipeline"]
-    device = texture.feats.device
-    fine = texture.coords[:, 1:].long()  # joint fine grid
-    points = aabb[0].to(device) + (fine.float() + 0.5) / res  # chunk-0 frame
-    mean, observed, count = observed_colours(points, mesh, 1.0 / res, out)
-    STATE["stats"]["tex_observed_voxels"] = float(observed.float().mean())
-    STATE["stats"]["tex_seen_voxels"] = float((count > 0).float().mean())
-    print(f"[inpaint] stage 3: {(count > 0).float().mean():.1%} of the fine voxels seen, "
-          f"{observed.float().mean():.1%} observed", flush=True)
-    save_colours(points[observed], mean[observed], out)
-
-    feats = texture.feats.float().clone()
-    feats[observed, 0:3] = mean[observed]
-    order = torch.argsort(o_voxel.serialize.encode_seq(fine.int().cpu())).to(device)  # as get_slats.py
-    encoder = models.from_pretrained(TEX_ENCODER).to(device).eval()
-    z = encoder(SparseTensor(feats[order] * 2 - 1, texture.coords[order]))  # coarse joint grid, R_lat per chunk side
-    del encoder, feats
+    dec = pipeline.models["shape_slat_decoder"]
+    dec.set_resolution(res)
+    if 2 ** (len(dec.num_blocks) - 1) != FINE_PER_LATENT:
+        raise RuntimeError(f"the shape decoder upsamples by {2 ** (len(dec.num_blocks) - 1)}, not {FINE_PER_LATENT}")
+    if pipeline.low_vram:
+        dec.to(pipeline.device)
+    h = SparseUnetVaeDecoder.forward(dec, joint)
+    vm = dec.voxel_margin
+    vertices = quantize((1 + 2 * vm) * F.sigmoid(h.feats[:, 0:3].float()) - vm)
+    intersected = h.feats[:, 3:6] > 0
+    coords = h.coords[:, 1:].long()
+    if pipeline.low_vram:
+        dec.cpu()
+    del h
     torch.cuda.empty_cache()
-    tex_mean = torch.tensor(pipeline.tex_slat_normalization["mean"])[None].to(device)
-    tex_std = torch.tensor(pipeline.tex_slat_normalization["std"])[None].to(device)
-    z_norm = (z.feats.float() - tex_mean) / tex_std
+    return coords, vertices, intersected
 
-    # Share of observed fine voxels per latent voxel, keyed in the coarse joint grid
-    coarse = z.coords[:, 1:].long()
-    dims = torch.maximum(coarse.max(dim=0).values, (fine // FINE_PER_LATENT).max(dim=0).values) + 1
+
+@torch.no_grad()
+def target_fine(vertices: np.ndarray, faces: np.ndarray, aabb: torch.Tensor, grid_size: torch.Tensor, device):
+    """Fine voxels of a mesh (chunk-0 frame) on the joint fine grid, as get_slats.py voxelizes training meshes."""
+    v = torch.from_numpy(vertices).float()
+    f = torch.from_numpy(faces).long()
+    lo, hi = aabb[0].cpu(), aabb[1].cpu()
+    f = f[((v[f] >= lo) & (v[f] < hi)).all(dim=2).all(dim=1)]  # faces inside the scene's grid
+    voxel_indices, dual_vertices, intersected = o_voxel.convert.mesh_to_flexible_dual_grid(
+        v, f, grid_size=grid_size.cpu().int(), aabb=torch.stack([lo, hi]).float(),
+        face_weight=1.0, boundary_weight=0.2, regularization_weight=1e-2)
+    voxel_size = (hi - lo) / grid_size.cpu().float()
+    local = dual_vertices / voxel_size - voxel_indices  # dual vertices come relative to the aabb's corner
+    return (voxel_indices.long().to(device), quantize(local.float()).to(device), intersected.bool().to(device))
+
+
+def save_surface(vertices: np.ndarray, faces: np.ndarray, out: Path):
+    """The TSDF surface in the frame of mesh.ply."""
+    chunk0 = np.array(json.loads((out / "chunk_transforms.json").read_text())["chunks"][0]["M_chunk_to_original"])
+    trimesh.Trimesh(vertices @ chunk0[:3, :3].T + chunk0[:3, 3], faces, process=False).export(out / "depth_surface.ply")
+
+
+@torch.no_grad()
+def shape_pins(pass_a: list[SparseTensor], relative_transl, R_lat: int, npz: Path, out: Path):
+    """Per chunk, the normalized encoding of the target and the mask of pinned latent voxels."""
+    pipeline = STATE["pipeline"]
+    device = pass_a[0].feats.device
+    std = torch.tensor(pipeline.shape_slat_normalization["std"])[None].to(device)
+    mean = torch.tensor(pipeline.shape_slat_normalization["mean"])[None].to(device)
+
+    # The joint coarse grid, as joint_decode_shape lays it out
+    joint, meta = _merge_chunk_slats([s * std + mean for s in pass_a], relative_transl, R_lat)
+    dims = (meta["maxs"] - meta["mins"]).long()
+    corner = meta["mins"].float() / R_lat - 0.5  # chunk-0 frame
+    aabb = torch.stack([corner, meta["maxs"].float() / R_lat - 0.5])
+    grid_size = dims * FINE_PER_LATENT
+    coarse = joint.coords[:, 1:].long()
 
     def key(c):
         return (c[:, 0] * dims[1] + c[:, 1]) * dims[2] + c[:, 2]
 
-    z_keys, z_order = key(coarse).sort()
-    fine_keys = key(fine // FINE_PER_LATENT)
-    share = torch.zeros(len(z_keys), device=device)
-    n = torch.zeros(len(z_keys), device=device)
-    idx = torch.searchsorted(z_keys, fine_keys).clamp(max=len(z_keys) - 1)
-    found = z_keys[idx] == fine_keys
-    share.index_add_(0, idx[found], observed[found].float())
-    n.index_add_(0, idx[found], torch.ones(int(found.sum()), device=device))
-    pinned = (share / n.clamp(min=1)) >= PIN_SHARE
+    # Known latent voxels, shrunk by one; cells outside the sparse structure are empty in both and count as known
+    inputs = input_views(npz, out)
+    known = known_latents(inputs, coarse, corner, R_lat)
+    grid = np.ones(tuple(dims.tolist()), dtype=bool)
+    c = coarse.cpu().numpy()
+    grid[tuple(c.T)] = known.cpu().numpy()
+    grid = binary_erosion(grid, np.ones((3, 3, 3), dtype=bool), border_value=1)
+    known_keys = key(coarse[torch.from_numpy(grid[tuple(c.T)]).to(device)]).sort().values
 
-    offsets, _, _ = grid_layout(relative_transl, R_lat)
-    x0, masks, total = [], [], 0
-    for c, offset in zip(chunks, offsets):
-        k = key(c.coords[:, 1:].long() + torch.from_numpy(offset).to(device))
+    def is_known(coarse_coords):
+        k = key(coarse_coords)
+        if not len(known_keys):
+            return torch.zeros_like(k, dtype=torch.bool)
+        return known_keys[torch.searchsorted(known_keys, k).clamp(max=len(known_keys) - 1)] == k
+
+    # Target: the depth's fine voxels where known, pass A's elsewhere
+    a_coords, a_vertices, a_intersected = decode_fine(joint, R_lat * FINE_PER_LATENT)
+    del joint
+    surface_vertices, surface_faces = depth_surface(inputs)
+    save_surface(surface_vertices, surface_faces, out)
+    d_coords, d_vertices, d_intersected = target_fine(surface_vertices, surface_faces, aabb, grid_size, device)
+    keep_a, keep_d = ~is_known(a_coords // FINE_PER_LATENT), is_known(d_coords // FINE_PER_LATENT)
+    fine = torch.cat([a_coords[keep_a], d_coords[keep_d]])
+    vertices = torch.cat([a_vertices[keep_a], d_vertices[keep_d]])
+    intersected = torch.cat([a_intersected[keep_a], d_intersected[keep_d]])
+    print(f"[inpaint] stage 2: {len(a_coords)} fine voxels from pass A, {len(d_coords)} from the depth; "
+          f"target {int(keep_a.sum())} + {int(keep_d.sum())}", flush=True)
+    del a_coords, a_vertices, a_intersected, d_coords, d_vertices, d_intersected
+
+    order = torch.argsort(o_voxel.serialize.encode_seq(fine.int().cpu())).to(device)  # as get_slats.py
+    coords = torch.cat([torch.zeros(len(fine), 1, dtype=torch.int32, device=device), fine.int()], dim=1)[order]
+    encoder = models.from_pretrained(SHAPE_ENCODER).to(device).eval()
+    z = encoder(SparseTensor(vertices[order], coords), SparseTensor(intersected[order], coords))
+    del encoder, vertices, intersected, fine, coords
+    torch.cuda.empty_cache()
+    z_norm = (z.feats.float() - mean) / std
+    z_keys, z_order = key(z.coords[:, 1:].long()).sort()
+
+    # Per chunk: pinned where the latent voxel is known and the target has an encoding there
+    offsets = [(t.to(device) * R_lat).round().long() for t in relative_transl]
+    mins = torch.stack(offsets).min(dim=0).values
+    x0, masks, total, known_total = [], [], 0, 0
+    for chunk, offset in zip(pass_a, offsets):
+        k = key(chunk.coords[:, 1:].long() + (offset - mins))
         j = torch.searchsorted(z_keys, k).clamp(max=len(z_keys) - 1)
         found = z_keys[j] == k
-        mask = (found & pinned[j]).float()[:, None]
-        x0.append(torch.where(found[:, None], z_norm[z_order[j]], torch.zeros_like(z_norm[z_order[j]])))
+        known_chunk = is_known(chunk.coords[:, 1:].long() + (offset - mins))
+        mask = (found & known_chunk).to(chunk.feats.dtype)[:, None]
+        x0.append(torch.where(found[:, None], z_norm[z_order[j]], torch.zeros_like(z_norm[z_order[j]]))
+                  .to(chunk.feats.dtype))
         masks.append(mask)
         total += mask.sum().item()
-    share_pinned = total / sum(len(c.coords) for c in chunks)
-    STATE["stats"]["tex_pinned_latents"] = share_pinned
-    print(f"[inpaint] stage 3: pinned {share_pinned:.1%} of the chunks' latent voxels", flush=True)
+        known_total += known_chunk.sum().item()
+    voxels = sum(len(c.coords) for c in pass_a)
+    STATE["stats"].update(shape_known_latents=known.float().mean().item(),
+                          shape_known_shrunk_latents=known_total / voxels, shape_pinned_latents=total / voxels)
+    print(f"[inpaint] stage 2: {known.float().mean():.1%} of the latent voxels known, {known_total / voxels:.1%} "
+          f"after shrinking, {total / voxels:.1%} pinned", flush=True)
     return x0, masks
 
 
@@ -342,16 +303,10 @@ def tex_pins(texture: SparseTensor, mesh, aabb: torch.Tensor, res: int, relative
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--npz", type=Path, help="Depth and cameras of the input images (needed for --stages ss).")
-    parser.add_argument("--stages", default="ss,tex", help="Comma-separated: ss, tex.")
+    parser.add_argument("--npz", type=Path, required=True, help="Depth and cameras of the input images.")
     args, rest = parser.parse_known_args()
-    stages = set(args.stages.split(","))
-    if not stages <= {"ss", "tex"}:
-        raise SystemExit(f"unknown stages: {stages - {'ss', 'tex'}}")
-    if "ss" in stages and args.npz is None:
-        raise SystemExit("--stages ss needs --npz")
     out = Path(reconstruct_scene.build_parser().parse_args(rest).output_path)
-    STATE["stats"] = {"stages": sorted(stages)}
+    STATE["stats"] = {}
 
     original_run = FullSceneImagesTo3DPipeline.run
     original_sample = MultiDiffusionOrchestrator.sample
@@ -365,8 +320,8 @@ def main():
                guidance_interval=(0.0, 1.0), guidance_rescale=0.0, verbose=True, tqdm_desc="Sampling",
                chunk_kwargs=None, boundary_sensitive=False, boundary_width=2):
         dense = isinstance(noise[0], torch.Tensor)
-        tex = not dense and chunk_kwargs is not None and "concat_cond" in chunk_kwargs[0]
-        if not ((dense and "ss" in stages) or (tex and "tex" in stages)):
+        tex = chunk_kwargs is not None and "concat_cond" in chunk_kwargs[0]
+        if dense or tex:  # stages 1 and 3
             return original_sample(self, model, noise, cond, neg_cond, relative_transl, steps=steps,
                                    rescale_t=rescale_t, guidance_strength=guidance_strength,
                                    guidance_interval=guidance_interval, guidance_rescale=guidance_rescale,
@@ -386,35 +341,16 @@ def main():
         start = self._initialize_noise(noise, relative_transl, R_lat)
 
         def loop(chunks, desc, pin=None):
-            return sample_loop(self, model, chunks, cond, neg_cond, relative_transl, t_pairs, guidance,
-                               chunk_kwargs, aggregate, verbose, desc, pin)
+            return sample_loop(self, model, chunks, cond, neg_cond, relative_transl, t_pairs, guidance, aggregate,
+                               verbose, desc, pin)
 
-        if dense:  # stage 1
-            with torch.autocast("cuda", enabled=False):
-                occupied, free = depth_cells(args.npz, out, relative_transl)
-                x0, masks = ss_pins(occupied, free, relative_transl, R_lat, start)
-            result = loop([c.clone() for c in start], tqdm_desc + " (inpainted)", (x0, masks, start))
-        else:  # stage 3
-            pipeline = STATE["pipeline"]
-            pass_a = loop([c.replace(c.feats.clone()) for c in start], tqdm_desc + " (pass A)")
-            res = R_lat * FINE_PER_LATENT
-            with torch.autocast("cuda", enabled=False):
-                std = torch.tensor(pipeline.shape_slat_normalization["std"])[None].to(pipeline.device)
-                mean = torch.tensor(pipeline.shape_slat_normalization["mean"])[None].to(pipeline.device)
-                shapes = [k["concat_cond"] * std + mean for k in chunk_kwargs]
-                mesh, aabb, _, ctx, _ = pipeline.joint_decode_shape_slats(shapes, res, relative_transl)
-                del shapes
-                tex_std = torch.tensor(pipeline.tex_slat_normalization["std"])[None].to(pipeline.device)
-                tex_mean = torch.tensor(pipeline.tex_slat_normalization["mean"])[None].to(pipeline.device)
-                texture = pipeline.joint_decode_tex_slats([s * tex_std + tex_mean for s in pass_a], ctx,
-                                                          relative_transl)
-                del ctx, pass_a
-                torch.cuda.empty_cache()
-                x0, masks = tex_pins(texture, mesh, aabb, res, relative_transl, R_lat, start, out)
-                del texture, mesh
-                torch.cuda.empty_cache()
-            result = loop([c.replace(c.feats.clone()) for c in start], tqdm_desc + " (pass B, inpainted)",
-                          (x0, masks, start))
+        pass_a = loop([c.replace(c.feats.clone()) for c in start], tqdm_desc + " (pass A)")
+        with torch.autocast("cuda", enabled=False):
+            x0, masks = shape_pins(pass_a, relative_transl, R_lat, args.npz, out)
+        del pass_a
+        torch.cuda.empty_cache()
+        result = loop([c.replace(c.feats.clone()) for c in start], tqdm_desc + " (pass B, inpainted)",
+                      (x0, masks, start))
         (out / "inpainting.json").write_text(json.dumps(STATE["stats"], indent=2))
         return result
 
