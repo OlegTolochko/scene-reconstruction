@@ -55,7 +55,7 @@ from genrecon.pipelines.samplers.multi_diff_orchestrator import MultiDiffusionOr
 SHAPE_ENCODER = "microsoft/TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16"
 FINE_PER_LATENT = 16  # fine voxels per shape latent voxel and axis
 
-MIN_VIEWS = 2  # images that must see all of a latent voxel for it to be known
+MIN_VIEWS = 1  # images that must see all of a latent voxel for it to be known
 EDGE_RATIO = 0.1  # depth pixels whose 3x3 depth range exceeds this share of their depth are dropped
 TSDF_PER_CHUNK = 128  # TSDF voxels per chunk side
 TRUNCATION = 3  # TSDF voxels: the TSDF's truncation, and how far behind the depth a point still counts as seen
@@ -219,8 +219,9 @@ def save_surface(vertices: np.ndarray, faces: np.ndarray, out: Path):
 
 
 @torch.no_grad()
-def shape_pins(pass_a: list[SparseTensor], relative_transl, R_lat: int, npz: Path, out: Path):
-    """Per chunk, the normalized encoding of the target and the mask of pinned latent voxels."""
+def shape_pins(pass_a: list[SparseTensor], relative_transl, R_lat: int, npz: Path, out: Path, trust_depth: bool):
+    """Per chunk, the normalized encoding of the target and the mask of pinned latent voxels. With trust_depth, every
+    latent voxel the depth's surface passes through is known, without the view count or the shrinking."""
     pipeline = STATE["pipeline"]
     device = pass_a[0].feats.device
     std = torch.tensor(pipeline.shape_slat_normalization["std"])[None].to(device)
@@ -237,14 +238,22 @@ def shape_pins(pass_a: list[SparseTensor], relative_transl, R_lat: int, npz: Pat
     def key(c):
         return (c[:, 0] * dims[1] + c[:, 1]) * dims[2] + c[:, 2]
 
-    # Known latent voxels, shrunk by one; cells outside the sparse structure are empty in both and count as known
     inputs = input_views(npz, out)
-    known = known_latents(inputs, coarse, corner, R_lat)
-    grid = np.ones(tuple(dims.tolist()), dtype=bool)
-    c = coarse.cpu().numpy()
-    grid[tuple(c.T)] = known.cpu().numpy()
-    grid = binary_erosion(grid, np.ones((3, 3, 3), dtype=bool), border_value=1)
-    known_keys = key(coarse[torch.from_numpy(grid[tuple(c.T)]).to(device)]).sort().values
+    surface_vertices, surface_faces = depth_surface(inputs)
+    save_surface(surface_vertices, surface_faces, out)
+    d_coords, d_vertices, d_intersected = target_fine(surface_vertices, surface_faces, aabb, grid_size, device)
+    if trust_depth:
+        # Known: every latent voxel of the sparse structure that the depth's surface passes through
+        known = torch.isin(key(coarse), key(d_coords // FINE_PER_LATENT))
+        known_keys = key(coarse[known]).sort().values
+    else:
+        # Known latent voxels, shrunk by one; cells outside the sparse structure are empty in both and count as known
+        known = known_latents(inputs, coarse, corner, R_lat)
+        grid = np.ones(tuple(dims.tolist()), dtype=bool)
+        c = coarse.cpu().numpy()
+        grid[tuple(c.T)] = known.cpu().numpy()
+        grid = binary_erosion(grid, np.ones((3, 3, 3), dtype=bool), border_value=1)
+        known_keys = key(coarse[torch.from_numpy(grid[tuple(c.T)]).to(device)]).sort().values
 
     def is_known(coarse_coords):
         k = key(coarse_coords)
@@ -255,9 +264,6 @@ def shape_pins(pass_a: list[SparseTensor], relative_transl, R_lat: int, npz: Pat
     # Target: the depth's fine voxels where known, pass A's elsewhere
     a_coords, a_vertices, a_intersected = decode_fine(joint, R_lat * FINE_PER_LATENT)
     del joint
-    surface_vertices, surface_faces = depth_surface(inputs)
-    save_surface(surface_vertices, surface_faces, out)
-    d_coords, d_vertices, d_intersected = target_fine(surface_vertices, surface_faces, aabb, grid_size, device)
     keep_a, keep_d = ~is_known(a_coords // FINE_PER_LATENT), is_known(d_coords // FINE_PER_LATENT)
     fine = torch.cat([a_coords[keep_a], d_coords[keep_d]])
     vertices = torch.cat([a_vertices[keep_a], d_vertices[keep_d]])
@@ -304,9 +310,11 @@ def shape_pins(pass_a: list[SparseTensor], relative_transl, R_lat: int, npz: Pat
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--npz", type=Path, required=True, help="Depth and cameras of the input images.")
+    parser.add_argument("--trust-depth", action="store_true",
+                        help="Pin every latent voxel the depth's surface passes through (no view count, no shrinking).")
     args, rest = parser.parse_known_args()
     out = Path(reconstruct_scene.build_parser().parse_args(rest).output_path)
-    STATE["stats"] = {}
+    STATE["stats"] = {"trust_depth": args.trust_depth}
 
     original_run = FullSceneImagesTo3DPipeline.run
     original_sample = MultiDiffusionOrchestrator.sample
@@ -346,7 +354,7 @@ def main():
 
         pass_a = loop([c.replace(c.feats.clone()) for c in start], tqdm_desc + " (pass A)")
         with torch.autocast("cuda", enabled=False):
-            x0, masks = shape_pins(pass_a, relative_transl, R_lat, args.npz, out)
+            x0, masks = shape_pins(pass_a, relative_transl, R_lat, args.npz, out, args.trust_depth)
         del pass_a
         torch.cuda.empty_cache()
         result = loop([c.replace(c.feats.clone()) for c in start], tqdm_desc + " (pass B, inpainted)",
