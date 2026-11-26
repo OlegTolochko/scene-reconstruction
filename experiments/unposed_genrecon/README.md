@@ -38,7 +38,7 @@ outputs/unposed_genrecon/
 │       └── points3D.txt          point cloud, used only to place the chunks
 └── <name>_genrecon/              GenRecon outputs
     ├── scene.glb                 final textured scene (chunked_to_glb.py)
-    ├── mesh.ply                  untextured scene mesh
+    ├── mesh.ply                  raw scene mesh, colours per vertex (before chunked_to_glb.py)
     ├── chunk_layout.png          top-down view of the chunks
     ├── clean_points.ply          point cloud 
     ├── coords_000.ply ...        occupied voxels (per chunk)
