@@ -1,0 +1,7 @@
+# Default user configuration. Resolves to ``<repo_root>/datasets`` when scripts are
+# run from the project root (the standard convention). Override on the CLI:
+#
+#   python -m dvlt.scripts.train ... user.data_root=/path/to/datasets
+#
+# The dataset YAMLs reference ``${user.data_root}/<split>/<name>[/<field>]``.
+data_root: "datasets"

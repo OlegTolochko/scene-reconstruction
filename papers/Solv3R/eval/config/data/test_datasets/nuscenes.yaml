@@ -1,0 +1,11 @@
+nuscenes:
+  _target_: dvlt.data.datasets.parser.dataverse.DataverseEvalDataset
+  max_frames: 50
+  view_ranking: "index"
+  max_depth_thresh: 100.0
+  dataverse_cfg:
+    target: "nuscenes_h5.NuScenesH5"
+    params:
+      root_path: "${user.data_root}/test/nuscenes"
+      split: "trainval"
+      scenes: "eval"

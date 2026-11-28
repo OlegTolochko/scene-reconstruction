@@ -1,0 +1,11 @@
+defaults:
+  - base
+  - callbacks:
+    - pose
+    - depth
+    - intrinsics
+    - pointmap
+  - _self_
+
+seed: 42
+mixed_precision: bf16

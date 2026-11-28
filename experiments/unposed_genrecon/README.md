@@ -1,11 +1,13 @@
 # Unposed GenRecon
 
-Run GenRecon on unposed images by estimating cameras with VGGT-Omega.
+Run GenRecon on unposed images by estimating cameras with VGGT-Omega or Solv3R.
 
 ## Requirements
 
 - The VGGT-Omega uv env and checkpoint, set up as in
   `papers/VGGT-Omega/README_scene-reconstruction.md`.
+- For `--model solv3r`: the Solv3R uv env and checkpoint, set up as in
+  `papers/Solv3R/README_scene-reconstruction.md`.
 - The GenRecon uv env and checkpoints, set up as in
   `papers/GenRecon/README_scene-reconstruction.md`.
 
@@ -15,7 +17,11 @@ Run GenRecon on unposed images by estimating cameras with VGGT-Omega.
 
 ```bash
 python experiments/unposed_genrecon/run.py path/to/images_or_video 
+python experiments/unposed_genrecon/run.py path/to/images_or_video --model solv3r
 ```
+
+With `--model solv3r`, Solv3R replaces VGGT-Omega and the outputs are named `<name>_solv3r.npz` and
+`<name>_solv3r_genrecon/`.
 
 ## Outputs
 
@@ -52,7 +58,7 @@ that step. `scene/` is shared by all inputs, so `convert.py` always reruns.
 
 | Step | Script | Env |
 | ---- | ------ | --- |
-| Estimate cameras and depth | `infer.py` | VGGT-Omega |
+| Estimate cameras and depth | `infer.py` or `infer_solv3r.py` | VGGT-Omega or Solv3R |
 | Align, write COLMAP files | `convert.py` | GenRecon |
 | Generate the scene | `papers/GenRecon/reconstruct_scene.py` | GenRecon |
 | Bake `scene.glb` | `papers/GenRecon/chunked_to_glb.py` | GenRecon |
@@ -83,4 +89,6 @@ mkdir -p logs && sbatch experiments/unposed_genrecon/eval.sbatch
 uv run scripts/select_views_scannetpp.py 32
 uv run experiments/unposed_genrecon/run_eval.py 32   # outputs/unposed_genrecon/32views/<scene>/
 uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon/32views
+uv run experiments/unposed_genrecon/run_eval.py 32 --model solv3r   # outputs/unposed_genrecon_solv3r/32views/<scene>/
+uv run scripts/evaluate_scannetpp.py outputs/unposed_genrecon_solv3r/32views
 ```

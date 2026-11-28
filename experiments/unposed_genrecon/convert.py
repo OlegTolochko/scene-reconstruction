@@ -50,15 +50,15 @@ def main():
     args = p.parse_args()
 
     d = np.load(args.npz)
-    # VGGT-Omega output written by infer.py (S images of size H x W):
+    # VGGT-Omega output written by infer.py, or Solv3R output written by infer_solv3r.py (S images of size H x W):
     #   image_paths    (S,)              source image paths
     #   images         (S, 3, H, W)      RGB in [0, 1]
     #   depth          (S, H, W, 1)      depth per pixel, arbitrary scale
     #   depth_conf     (S, H, W)         confidence per depth pixel
     #   extrinsics     (S, 3, 4)         world-to-camera [R | t], OpenCV
     #   intrinsics     (S, 3, 3)         K
-    #   camera_tokens  (S, 1, 2048)      unused
-    #   registers      (S, 16, 2048)     unused
+    #   camera_tokens  (S, 1, 2048)      unused, VGGT-Omega only
+    #   registers      (S, 16, 2048)     unused, VGGT-Omega only
 
     images, depth, conf = d["images"], d["depth"], d["depth_conf"]
     extr, intr = d["extrinsics"][:, :3, :4].astype(np.float64), d["intrinsics"].astype(np.float64)

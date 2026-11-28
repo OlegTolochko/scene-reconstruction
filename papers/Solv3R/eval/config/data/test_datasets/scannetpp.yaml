@@ -1,0 +1,11 @@
+scannetpp:
+  _target_: dvlt.data.datasets.parser.dataverse.DataverseEvalDataset
+  max_frames: 100
+  dataverse_cfg:
+    target: "scannetpp.ScanNetpp"
+    params:
+      data_root: "${user.data_root}/test/scannetpp/scannetpp_undistort"
+      images_dir: "undistorted_images"
+      depth_dir: "undistorted_depth"
+      transforms_path: "nerfstudio/transforms_undistorted.json"
+      split_file: "${user.data_root}/test/scannetpp/nvs_sem_val.txt"

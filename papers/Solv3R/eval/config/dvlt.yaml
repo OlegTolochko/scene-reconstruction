@@ -1,0 +1,21 @@
+defaults:
+  - model: dvlt
+  - data: benchmark
+  - user: default
+  - trainer: default
+  - _self_
+
+# Inference-only DVLT config. Used both by `src/dvlt/scripts/gradio_demo.py`
+
+model:
+  img_size: 504
+  depth_head_type: conv  # matches the released stage-2 checkpoint head
+
+data:
+  image_size: 504
+  patch_size: 14
+
+trainer:
+  experiment_name: dvlt
+  mixed_precision: bf16
+  ckpt_dir: nvidia/dvlt

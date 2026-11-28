@@ -1,0 +1,3 @@
+# Pose evaluation callback (AUC metrics)
+pose:
+  _target_: dvlt.callbacks.evaluators.pose.PoseEvaluator

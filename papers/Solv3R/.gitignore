@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+outputs/
+results/
+*.egg-info/
+
+# model weights (distributed separately)
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.onnx
