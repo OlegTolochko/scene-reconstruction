@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from evaluation.formats import Cameras
+
 
 @dataclass
 class Similarity:
@@ -18,13 +20,6 @@ class Similarity:
 
     def apply(self, points: np.ndarray) -> np.ndarray:
         return self.scale * points @ self.rotation.T + self.translation
-
-    def matrix(self) -> np.ndarray:
-        """4x4 matrix of the transform."""
-        M = np.eye(4)
-        M[:3, :3] = self.scale * self.rotation
-        M[:3, 3] = self.translation
-        return M
 
     def inverse(self) -> "Similarity":
         return Similarity(1 / self.scale, self.rotation.T, -self.rotation.T @ self.translation / self.scale)
@@ -39,3 +34,11 @@ def umeyama(x: np.ndarray, y: np.ndarray) -> Similarity:
     s = np.trace(np.diag(D) @ S) / ((x - mx) ** 2).sum(axis=1).mean()
     return Similarity(s, R, my - s * R @ mx)
 
+
+def transform_cameras(cameras: Cameras, fit: Similarity, frame: str) -> Cameras:
+    """The cameras in the frame fit maps to. Camera coordinates are scaled with the world, so they stay rigid."""
+    R, t = cameras.world_to_camera[:, :, :3], cameras.world_to_camera[:, :, 3]
+    R_new = R @ fit.rotation.T
+    t_new = fit.scale * t - R_new @ fit.translation
+    return Cameras(cameras.names, cameras.K, np.concatenate([R_new, t_new[:, :, None]], axis=2), cameras.width,
+                   cameras.height, frame)

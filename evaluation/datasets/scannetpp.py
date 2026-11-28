@@ -47,6 +47,14 @@ class ScanNetPP(Dataset):
         keep = ~np.isin(scan.faces, anonymized).any(axis=1)
         return trimesh.Trimesh(scan.vertices, scan.faces[keep], process=False)
 
+    def input_dir(self, scene: str, n: int) -> Path:
+        """The scene folder with only the n input views, as GenRecon's ScanNet++ mode reads it."""
+        return self.root / f"eval_inputs/{n}views/{scene}"
+
+    def colmap_dir(self, scene: str) -> Path:
+        """ScanNet++'s own COLMAP model of the scene, built from all its DSLR images."""
+        return self.root / f"data/{scene}/dslr/colmap"
+
     def _views(self, scene: str, transforms: Path, key: str) -> list[View]:
         meta = json.loads(transforms.read_text())
         K = np.array([[meta["fl_x"], 0, meta["cx"]], [0, meta["fl_y"], meta["cy"]], [0, 0, 1]])

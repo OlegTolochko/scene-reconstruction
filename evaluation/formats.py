@@ -2,29 +2,28 @@
 
     cameras.json  one camera per input view: intrinsics, world-to-camera pose, image size
     depth.npz     one depth map per input view, at the size given in cameras.json
-    points.ply    a point cloud, e.g. COLMAP's sparse points
     cells.npz     the occupied cells of GenRecon's sparse-structure grid
-    mesh.ply      the reconstructed surface (mesh.ply.zst if zstd-compressed)
+    mesh.ply.zst  the reconstructed surface, zstd-compressed
 
-All of them are in the frame of the run's cameras. That frame is either the dataset's world frame in
-metres (`frame = "dataset"`, e.g. a run on the true cameras) or any frame and scale (`"arbitrary"`, e.g.
-VGGT-Omega). The evaluation aligns an arbitrary frame to the dataset's from the cameras (see align.py).
+All of them are in the frame of the scene folder's cameras.json. That frame is either the dataset's world
+frame in metres (`frame = "dataset"`, a run on the dataset's cameras) or any frame and scale (`"arbitrary"`,
+e.g. VGGT-Omega's). The evaluation aligns an arbitrary frame to the dataset's from the cameras (align.py).
 
 Cameras are OpenCV: x right, y down, z forward.
 
-Only numpy is needed, except for meshes and points (trimesh), so the paper envs can write these files.
+Every file is written to a temporary name and renamed, so a crash or a full disk never leaves a half-written
+file that would count as done. Only numpy is needed (and trimesh to read meshes), so the paper envs can write
+these files too.
 """
 
 import io
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-
-FRAMES = ("dataset", "arbitrary")
-
 
 @dataclass
 class Cameras:
@@ -33,11 +32,7 @@ class Cameras:
     world_to_camera: np.ndarray  # (S, 3, 4)
     width: np.ndarray  # (S,)
     height: np.ndarray  # (S,)
-    frame: str
-
-    def __post_init__(self):
-        if self.frame not in FRAMES:
-            raise ValueError(f"frame must be one of {FRAMES}, not {self.frame!r}")
+    frame: str  # "dataset" or "arbitrary"
 
     @property
     def centres(self) -> np.ndarray:
@@ -52,17 +47,19 @@ class Cameras:
     def save(self, path: Path):
         views = [{"name": name, "width": int(w), "height": int(h), "K": K.tolist(), "world_to_camera": P.tolist()}
                  for name, w, h, K, P in zip(self.names, self.width, self.height, self.K, self.world_to_camera)]
-        Path(path).write_text(json.dumps({"frame": self.frame, "views": views}, indent=1) + "\n")
+        tmp = Path(f"{path}.tmp")
+        tmp.write_text(json.dumps({"frame": self.frame, "views": views}, indent=1) + "\n")
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path: Path) -> "Cameras":
         data = json.loads(Path(path).read_text())
         views = data["views"]
         return cls(names=[v["name"] for v in views],
-                   K=np.array([v["K"] for v in views], dtype=float),
-                   world_to_camera=np.array([v["world_to_camera"] for v in views], dtype=float),
-                   width=np.array([v["width"] for v in views]),
-                   height=np.array([v["height"] for v in views]),
+                   K=np.array([v["K"] for v in views], dtype=float).reshape(-1, 3, 3),
+                   world_to_camera=np.array([v["world_to_camera"] for v in views], dtype=float).reshape(-1, 3, 4),
+                   width=np.array([v["width"] for v in views], dtype=int),
+                   height=np.array([v["height"] for v in views], dtype=int),
                    frame=data["frame"])
 
 
@@ -76,7 +73,10 @@ class Depth:
         arrays = {"names": np.array(self.names), "depth": self.depth.astype(np.float32)}
         if self.confidence is not None:
             arrays["confidence"] = self.confidence.astype(np.float32)
-        np.savez(path, **arrays)
+        tmp = Path(f"{path}.tmp")
+        with open(tmp, "wb") as f:
+            np.savez(f, **arrays)
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path: Path) -> "Depth":
@@ -103,12 +103,19 @@ class Cells:
         """Cells per axis of the box that holds every chunk."""
         return tuple(int(n) for n in self.chunk_offsets.max(axis=0) + self.chunk_cells)
 
-    def centres(self) -> np.ndarray:
-        return self.origin + (self.cells + 0.5) * self.cell_size
+    def inside(self, cells: np.ndarray) -> np.ndarray:
+        """Whether each of the (M, 3) cells lies in at least one chunk."""
+        inside = np.zeros(len(cells), dtype=bool)
+        for offset in self.chunk_offsets:
+            inside |= ((cells >= offset) & (cells < offset + self.chunk_cells)).all(axis=1)
+        return inside
 
     def save(self, path: Path):
-        np.savez(path, cells=self.cells.astype(np.int32), origin=self.origin, cell_size=self.cell_size,
-                            chunk_offsets=self.chunk_offsets.astype(np.int32), chunk_cells=self.chunk_cells)
+        tmp = Path(f"{path}.tmp")
+        with open(tmp, "wb") as f:
+            np.savez(f, cells=self.cells.astype(np.int32), origin=self.origin, cell_size=self.cell_size,
+                     chunk_offsets=self.chunk_offsets.astype(np.int32), chunk_cells=self.chunk_cells)
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path: Path) -> "Cells":
@@ -117,8 +124,15 @@ class Cells:
                    data["chunk_offsets"].astype(int), int(data["chunk_cells"]))
 
 
+def save_mesh(ply: Path, path: Path):
+    """Compress the mesh file ply into path (mesh.ply.zst)."""
+    tmp = Path(f"{path}.tmp")
+    subprocess.run(["zstd", "-q", "-f", ply, "-o", tmp], check=True)
+    os.replace(tmp, path)
+
+
 def load_mesh(path: Path):
-    """A mesh from mesh.ply or mesh.ply.zst, with vertices and faces as stored."""
+    """A mesh from mesh.ply.zst (or an uncompressed .ply), with vertices and faces as stored."""
     import trimesh
 
     path = Path(path)
@@ -126,25 +140,3 @@ def load_mesh(path: Path):
         ply = subprocess.run(["zstd", "-dc", path], capture_output=True, check=True).stdout
         return trimesh.load(io.BytesIO(ply), file_type="ply", process=False)
     return trimesh.load(path, process=False)
-
-
-def find_mesh(scene_dir: Path) -> Path | None:
-    for name in ("mesh.ply", "mesh.ply.zst"):
-        if (Path(scene_dir) / name).exists():
-            return Path(scene_dir) / name
-    return None
-
-
-def save_points(path: Path, points: np.ndarray, colors: np.ndarray | None = None):
-    """points (N, 3); colors (N, 3) as uint8, optional."""
-    import trimesh
-
-    trimesh.PointCloud(points, colors=colors).export(path)
-
-
-def load_points(path: Path) -> tuple[np.ndarray, np.ndarray | None]:
-    import trimesh
-
-    cloud = trimesh.load(path, process=False)
-    colors = cloud.colors[:, :3] if len(cloud.colors) else None
-    return np.asarray(cloud.vertices), colors

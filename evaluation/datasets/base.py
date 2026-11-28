@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from evaluation.formats import Cameras
+
 
 @dataclass
 class View:
@@ -56,3 +58,10 @@ class Dataset(ABC):
     @abstractmethod
     def surface(self, scene: str):
         """The true surface as a trimesh.Trimesh."""
+
+
+def true_cameras(views: list[View]) -> Cameras:
+    """The dataset's cameras of the views, in the standard format."""
+    return Cameras([v.name for v in views], np.stack([v.K for v in views]),
+                   np.stack([np.linalg.inv(v.cam_to_world)[:3] for v in views]),
+                   np.array([v.width for v in views]), np.array([v.height for v in views]), "dataset")

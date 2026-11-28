@@ -26,6 +26,7 @@ import open3d as o3d
 import trimesh
 from scipy.ndimage import distance_transform_cdt
 
+from evaluation.align import Similarity
 from evaluation.formats import Cameras, Cells
 from evaluation.metrics.mesh import raycasting_scene, sample_points
 
@@ -55,16 +56,15 @@ def visible(points: np.ndarray, surface: trimesh.Trimesh, cameras: Cameras) -> n
     return seen
 
 
-def true_cells(surface: trimesh.Trimesh, grid: Cells, cameras: Cameras) -> dict:
+def true_cells(surface: trimesh.Trimesh, grid: Cells, cameras: Cameras, to_grid: Similarity | None = None) -> dict:
     """The `all` and `visible` cells on the grid of `grid` (its own cells are not used).
 
-    surface and cameras must be in the grid's frame and units, and cameras.K must map to cameras.width x height.
+    surface and cameras are in the dataset's frame, in metres; to_grid maps that frame to the grid's (None: the
+    grid is in the dataset's frame). cameras.K must map to cameras.width x cameras.height.
     """
     points, _ = sample_points(surface, int(surface.area * POINTS_PER_M2))
-    cells = np.floor((points - grid.origin) / grid.cell_size).astype(int)
-    inside = np.zeros(len(cells), dtype=bool)  # in at least one chunk
-    for offset in grid.chunk_offsets:
-        inside |= ((cells >= offset) & (cells < offset + grid.chunk_cells)).all(axis=1)
+    cells = np.floor(((points if to_grid is None else to_grid.apply(points)) - grid.origin) / grid.cell_size).astype(int)
+    inside = grid.inside(cells)
     points, cells = points[inside], cells[inside]
     seen = visible(points, surface, cameras)
     return {"all": np.unique(cells, axis=0), "visible": np.unique(cells[seen], axis=0)}
