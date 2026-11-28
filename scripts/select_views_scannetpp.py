@@ -1,8 +1,9 @@
 """Select the input views of the ScanNet++ evaluation scenes.
 
 Every method gets the same N undistorted DSLR images of a scene: training frames not flagged as
-bad, picked by farthest-point sampling of the camera centres (as in T3lescope, arXiv 2610.03308),
-starting at the first frame by file name. Scenes with fewer frames get all of them.
+bad (by ScanNet++, or in WRONG_POSE below), picked by farthest-point sampling of the camera centres
+(as in T3lescope, arXiv 2610.03308), starting at the first frame by file name. Scenes with fewer
+frames get all of them.
 
 For each N and each scene in data/scannetpp/splits/nvs_sem_val.txt this writes
 data/scannetpp/eval_inputs/<N>views/<scene>/dslr/: symlinks to the scene's dslr folder, except
@@ -19,6 +20,12 @@ from pathlib import Path
 import numpy as np
 
 SCANNETPP = Path(__file__).resolve().parents[1] / "data/scannetpp"
+
+# Frames whose ScanNet++ pose is wrong. Farthest-point sampling favours them, since a wrong pose tends to
+# lie far from every other camera.
+#   c4c04e6d6c DSC03074.JPG: the scan rendered at its pose shows a bare wall and floor, not the classroom
+#   in the image, and VGGT-Omega and Solv3R both place it about 6 m from that pose.
+WRONG_POSE = {("c4c04e6d6c", "DSC03074.JPG")}
 
 
 def select_views(frames: list[dict], n: int) -> set[str]:
@@ -43,7 +50,8 @@ def main():
     for scene in (SCANNETPP / "splits/nvs_sem_val.txt").read_text().split():
         src = SCANNETPP / "data" / scene / "dslr"
         transforms = json.loads((src / "nerfstudio/transforms_undistorted.json").read_text())
-        good = sorted((f for f in transforms["frames"] if not f["is_bad"]), key=lambda f: f["file_path"])
+        good = sorted((f for f in transforms["frames"] if not f["is_bad"] and (scene, f["file_path"]) not in WRONG_POSE),
+                      key=lambda f: f["file_path"])
 
         for n in args.views:
             dslr = SCANNETPP / "eval_inputs" / f"{n}views" / scene / "dslr"

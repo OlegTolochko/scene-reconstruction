@@ -219,7 +219,6 @@ checkpoints/
 
 out/
 cache/
-evaluation/
 tmp/
 runs/
 # Shell scripts are kept out of the repository, except in vendored paper code under papers/.
